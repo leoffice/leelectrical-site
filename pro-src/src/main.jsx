@@ -1,20 +1,25 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
-import App from "./App.jsx";
-import LockGate from "./components/LockGate.jsx";
-import PayLanding from "./views/PayLanding.jsx";
-import PayThanks from "./views/PayThanks.jsx";
-import { StoreProvider } from "./state/store.jsx";
-import { TenantProvider } from "./state/tenant.jsx";
 import "./index.css";
 import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } from "./lib/appUpdate.js";
 import { DEMO } from "./lib/demoMode.js";
 import { installDemoBackend } from "./demo/demoBackend.js";
 import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
-import { buildPhaseACtaPayPayload, renewScenarioById } from "./lib/permitRenewal.js";
-import { encodePayLanding } from "./lib/payLanding.js";
-import { markPlaceholderMaterialized } from "./lib/permitCache.js";
+
+// Route-level split (perf Batch D, 2026-08-11): the staff graph (~2.4 MB) and
+// the customer pay page load as separate chunks — an emailed "View invoice"
+// link no longer downloads the whole staff app, and the staff boot skips the
+// pay-page code.
+const StaffApp = React.lazy(() => import("./StaffApp.jsx"));
+const PayLanding = React.lazy(() => import("./views/PayLanding.jsx"));
+const PayThanks = React.lazy(() => import("./views/PayThanks.jsx"));
+
+const BootFallback = (
+  <div className="min-h-screen flex items-center justify-center text-sm font-semibold text-slate-400">
+    Loading…
+  </div>
+);
 
 // DEMO / white-label TEST TENANT: intercept every backend call and serve a
 // synthetic, isolated store BEFORE any provider mounts or any fetch fires.
@@ -72,11 +77,19 @@ bootstrapPayQueryToHash();
  * (invoice is not generated when staff sends the notice email).
  * Query: ?renewCta=phaseA&scenario=hampton-yossi&inv=LE-####
  */
-function bootstrapRenewCtaQueryToPay() {
+async function bootstrapRenewCtaQueryToPay() {
   if (typeof window === "undefined") return;
   try {
     const u = new URL(window.location.href);
     if (String(u.searchParams.get("renewCta") || "").trim() !== "phaseA") return;
+    // Renew-CTA helpers load on demand — permitRenewal/permitCache are staff
+    // modules and must not sit in the entry chunk for every visitor.
+    const [{ buildPhaseACtaPayPayload, renewScenarioById }, { encodePayLanding }, { markPlaceholderMaterialized }] =
+      await Promise.all([
+        import("./lib/permitRenewal.js"),
+        import("./lib/payLanding.js"),
+        import("./lib/permitCache.js"),
+      ]);
     // Brief "Loading invoice" shell while we build the pay token (Levi 2026-08-10)
     try {
       const root = document.getElementById("root");
@@ -103,51 +116,71 @@ function bootstrapRenewCtaQueryToPay() {
     });
     if (inv) markPlaceholderMaterialized(inv);
     const token = encodePayLanding(payload);
-    if (!token) return;
+    if (!token) return false;
     u.searchParams.delete("renewCta");
     u.searchParams.delete("scenario");
     u.searchParams.delete("inv");
     const qs = u.searchParams.toString();
     const base = `${u.pathname}${qs ? `?${qs}` : ""}`;
     window.location.replace(`${base}#/pay/${token}`);
+    return true; // navigation in flight — caller must not mount the app
   } catch {
     /* ignore */
   }
+  return false;
 }
-bootstrapRenewCtaQueryToPay();
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {
   const { pathname } = useLocation();
   if (pathname.startsWith("/pay")) {
     return (
-      <Routes>
-        <Route path="/pay/thanks" element={<PayThanks />} />
-        <Route path="/pay/:token" element={<PayLanding />} />
-        <Route path="/pay" element={<PayLanding />} />
-      </Routes>
+      <React.Suspense fallback={BootFallback}>
+        <Routes>
+          <Route path="/pay/thanks" element={<PayThanks />} />
+          <Route path="/pay/:token" element={<PayLanding />} />
+          <Route path="/pay" element={<PayLanding />} />
+        </Routes>
+      </React.Suspense>
     );
   }
   return (
-    <LockGate>
-      <StoreProvider>
-        {/* Loads tenant_config before App mounts, so disabled routes are
-            never registered — not even for a frame. */}
-        <TenantProvider>
-          <App />
-        </TenantProvider>
-      </StoreProvider>
-    </LockGate>
+    <React.Suspense fallback={BootFallback}>
+      <StaffApp />
+    </React.Suspense>
   );
 }
 
-createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <HashRouter>
-      <PayOrApp />
-    </HashRouter>
-  </React.StrictMode>
-);
+// A renew-CTA visit owns the page: the async bootstrap shows its own loading
+// shell and then location.replace()s into #/pay/… (a fresh navigation) —
+// mounting the app underneath would flash the staff lock screen.
+const RENEW_CTA_VISIT = (() => {
+  try {
+    return String(new URL(window.location.href).searchParams.get("renewCta") || "").trim() === "phaseA";
+  } catch {
+    return false;
+  }
+})();
+
+function mountApp() {
+  createRoot(document.getElementById("root")).render(
+    <React.StrictMode>
+      <HashRouter>
+        <PayOrApp />
+      </HashRouter>
+    </React.StrictMode>
+  );
+}
+
+if (RENEW_CTA_VISIT) {
+  // The bootstrap shows its own shell and navigates; mount only if it could
+  // not (bad scenario / token) so the visitor is never stuck on a spinner.
+  bootstrapRenewCtaQueryToPay().then((navigated) => {
+    if (!navigated) mountApp();
+  });
+} else {
+  mountApp();
+}
 
 // PWA: register the service worker (cache-first assets, offline shell).
 // Skipped in demo mode — a shared demo URL should not install a SW or cache a

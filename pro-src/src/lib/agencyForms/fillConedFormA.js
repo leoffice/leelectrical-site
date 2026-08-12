@@ -7,7 +7,10 @@
  *   "Part Supply FloorOffice Apartment"  / tooltip "Part Supply: Floor/Office #/Apartment"
  *   "Part Supply FloorOffice Apartment_2" (mailing)
  */
-import { PDFDocument, StandardFonts } from "pdf-lib";
+// pdf-lib is ~600 KB minified and this file is statically reachable from the
+// boot graph (App -> JobDetail/Permits -> agencyForms) — dynamic import keeps
+// it out of the entry bundle; the chunk loads on first form fill (perf
+// Batch D, 2026-08-11).
 import { CONED_FORM_A_SOURCE_PDF } from "./conedFormA.js";
 import { clampConedUnit } from "./conedUnit.js";
 
@@ -185,6 +188,7 @@ export async function fillConedFormAPdfBytes({ answers = {}, sourceBytes } = {})
       : new Uint8Array(sourceBytes)
     : await loadConedSourcePdfBytes();
 
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
   const doc = await PDFDocument.load(raw, { ignoreEncryption: true, updateMetadata: false });
   const form = doc.getForm();
   const values = resolveConedPage1Values(answers);

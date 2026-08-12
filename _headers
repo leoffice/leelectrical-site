@@ -18,6 +18,11 @@
 /app/pro/manifest.json
   Cache-Control: no-cache, must-revalidate
 
+# Content-hashed build assets can never be stale — cache forever so a launch
+# after CF's default 4h edge TTL doesn't re-validate every chunk (perf Batch D).
+/app/pro/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 /app/pro/apk/*.apk
   Content-Type: application/vnd.android.package-archive
   Cache-Control: public, max-age=3600

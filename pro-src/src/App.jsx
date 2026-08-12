@@ -18,13 +18,17 @@ import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
-import Time from "./views/Time.jsx";
-import Projects from "./views/Projects.jsx";
-import Company from "./views/Company.jsx";
-import Settings from "./views/Settings.jsx";
-import Archive from "./views/Archive.jsx";
-import Permits from "./views/Permits.jsx";
-import TransactionHistory from "./views/TransactionHistory.jsx";
+// Off-home routes are code-split (perf Batch D, 2026-08-11): Permits alone is
+// ~3k lines + the permit libs; none of these are needed to paint the Jobs
+// board on a cold open. The Suspense fallback below already existed for
+// Dev/Progress.
+const Time = React.lazy(() => import("./views/Time.jsx"));
+const Projects = React.lazy(() => import("./views/Projects.jsx"));
+const Company = React.lazy(() => import("./views/Company.jsx"));
+const Settings = React.lazy(() => import("./views/Settings.jsx"));
+const Archive = React.lazy(() => import("./views/Archive.jsx"));
+const Permits = React.lazy(() => import("./views/Permits.jsx"));
+const TransactionHistory = React.lazy(() => import("./views/TransactionHistory.jsx"));
 
 // Internal-only views (Dev, and Build = /progress) are lazy so they are
 // code-split out of the main chunk. A non-internal tenant never registers
