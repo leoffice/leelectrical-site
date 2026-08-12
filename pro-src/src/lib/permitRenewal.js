@@ -1215,6 +1215,16 @@ export function listPendingRenewCards(jobs = []) {
   for (const sc of listDriveReadyRenewScenarios()) {
     pushCard(cardFromReadyScenario(sc, jobs, apps));
   }
+  // Row identity must be unique — the UI expands rows by id, so a repeated id
+  // (same permit # cached at two address spellings, cache re-upserts) makes
+  // every matching row expand together: tap one → all look selected.
+  const seenIds = new Map();
+  for (const card of cards) {
+    const base = String(card.id || "").trim() || `renew-${seenIds.size}`;
+    const n = (seenIds.get(base) || 0) + 1;
+    seenIds.set(base, n);
+    card.id = n > 1 ? `${base}#${n}` : base;
+  }
   return cards;
 }
 
