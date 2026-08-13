@@ -1,12 +1,16 @@
 // Isolated Sync & Email overlay — owns its own input state so typing the
 // recipient does not re-render the heavy invoice/estimate builder (line rows).
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Fld } from "./Sheet.jsx";
 import {
   EMAIL_POLICY_KEEP,
   EMAIL_POLICY_ONCE,
   sendEmailDiffersFromCustomer,
 } from "../lib/sendDocConfirm.js";
+import {
+  attachmentOptionLabel,
+  defaultAttachmentKeys,
+} from "../lib/sendAttachmentOptions.js";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 
 export default function DocEmailComposeSheet({
@@ -15,8 +19,8 @@ export default function DocEmailComposeSheet({
   initialEmail = "",
   initialMessage = "",
   initialIncludePayLink = false,
-  attachmentCount = 0,
-  attachmentLabel = "",
+  attachmentOptions = [],
+  attachmentName = "",
   qboOn = false,
   saving = false,
   onClose,
@@ -26,9 +30,31 @@ export default function DocEmailComposeSheet({
   const [message, setMessage] = useState(initialMessage || "");
   const [emailPolicy, setEmailPolicy] = useState("");
   const [includePayLink, setIncludePayLink] = useState(!!initialIncludePayLink);
-  // Levi 2026-08-10: decide per send whether the letter / photos ride along.
-  // Defaults ON — an approved letter is normally meant to go with the invoice.
-  const [includeAttachments, setIncludeAttachments] = useState(true);
+  // Levi 2026-08-12: choose per send WHICH attachments ride along — anything
+  // attached through the estimate, the job info, or the invoice shows up here
+  // with its own checkbox. Approved letters and opted-in files start checked.
+  const [attKeys, setAttKeys] = useState(
+    () => new Set(defaultAttachmentKeys(attachmentOptions))
+  );
+  // A letter PDF can finish uploading while this sheet is already open — check
+  // newly arrived default-on options without undoing manual unchecks.
+  const seenAttKeysRef = useRef(new Set(attachmentOptions.map((o) => o.key)));
+  useEffect(() => {
+    const seen = seenAttKeysRef.current;
+    const fresh = attachmentOptions.filter((o) => !seen.has(o.key));
+    if (!fresh.length) return;
+    for (const o of fresh) seen.add(o.key);
+    const on = fresh.filter((o) => o.defaultOn).map((o) => o.key);
+    if (on.length) setAttKeys((prev) => new Set([...prev, ...on]));
+  }, [attachmentOptions]);
+  const toggleAttKey = (key) => {
+    setAttKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const differs = sendEmailDiffersFromCustomer(email, jobEmail);
   const emailNeedsPolicy =
@@ -38,7 +64,8 @@ export default function DocEmailComposeSheet({
     email,
     message,
     includePaymentLink: includePayLink,
-    includeAttachments,
+    includeAttachments: attKeys.size > 0,
+    attachmentKeys: Array.from(attKeys),
     emailPolicy: emailPolicy || (differs ? "" : EMAIL_POLICY_ONCE),
   });
 
@@ -140,27 +167,48 @@ export default function DocEmailComposeSheet({
             <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
           </label>
         ) : null}
-        {attachmentCount > 0 ? (
-          <label
-            className="flex items-start gap-2 mb-3 cursor-pointer"
-            data-testid="doc-include-attachments-toggle"
+        {attachmentOptions.length > 0 ? (
+          <div
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3"
+            data-testid="doc-attachment-picker"
           >
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={includeAttachments}
-              onChange={(e) => setIncludeAttachments(e.target.checked)}
-              aria-label="Include attachments in this email"
-            />
-            <span className="text-sm font-semibold text-slate-800">
-              Attach {attachmentCount === 1 ? "1 file" : `${attachmentCount} files`}
-              {attachmentLabel ? (
-                <span className="block text-[11px] font-normal text-slate-500 truncate">
-                  {attachmentLabel}
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">
+              Attachments
+            </p>
+            <div className="flex items-start gap-2 py-1 text-sm" data-testid="doc-attachment-fixed">
+              <input type="checkbox" className="mt-0.5" checked disabled aria-label="Document PDF (always included)" />
+              <span className="font-semibold text-slate-500">
+                📄 {attachmentName || (kind === "estimate" ? "Estimate PDF" : "Invoice PDF")}
+                <span className="block text-[11px] font-normal text-slate-400">always included</span>
+              </span>
+            </div>
+            {attachmentOptions.map((o, i) => (
+              <label
+                key={o.key}
+                className="flex items-start gap-2 py-1 cursor-pointer text-sm"
+                data-testid={"doc-attachment-pick-" + (i + 1)}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={attKeys.has(o.key)}
+                  onChange={() => toggleAttKey(o.key)}
+                  aria-label={"Attach " + (o.name || "file") + " to this email"}
+                  data-testid={"doc-attachment-pick-box-" + (i + 1)}
+                />
+                <span className="font-semibold text-slate-800 min-w-0">
+                  <span className="block truncate">
+                    {o.isLetter ? "✉" : o.isImage ? "🖼" : "📎"} {o.name}
+                  </span>
+                  {attachmentOptionLabel(o) ? (
+                    <span className="block text-[11px] font-normal text-slate-500 truncate">
+                      {attachmentOptionLabel(o)}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </span>
-          </label>
+              </label>
+            ))}
+          </div>
         ) : null}
         {!qboOn ? (
           <button

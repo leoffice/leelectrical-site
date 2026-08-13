@@ -271,6 +271,43 @@ export const LETTER_TYPES = [
     ],
   },
   {
+    id: "work_confirmation",
+    label: "Work confirmation / compliance",
+    shortLabel: "Work confirm",
+    letterhead: "company",
+    photoSlots: "optional-multi",
+    productMatch:
+      /work\s*confirmation|confirmation\s*of\s*(completed\s*)?work|compliance\s*letter|insurance\s*compliance|completed\s*work\s*letter/i,
+    description:
+      "Confirmation of completed work for insurance / compliance (sample: 73-75 Grand Ave exit sign). Work description auto-fills from the job.",
+    fields: [
+      { key: "address", label: "Property address", type: "text", required: true },
+      {
+        key: "insured",
+        label: "Insured / property owner",
+        type: "text",
+        placeholder: "The Grand 73 LLC",
+        required: true,
+      },
+      { key: "policyNumber", label: "Policy # (optional)", type: "text", placeholder: "O1017PK000607-00" },
+      {
+        key: "recommendationRef",
+        label: "Recommendation / reference (optional)",
+        type: "text",
+        placeholder: "Loss Control Recommendation #1",
+      },
+      { key: "workDate", label: "Date work completed", type: "date" },
+      {
+        key: "workDescription",
+        label: "Work performed (notes)",
+        type: "textarea",
+        required: true,
+        placeholder:
+          "installed a new illuminated exit sign with battery backup above the rear exit door, hardwired to the building's electrical system",
+      },
+    ],
+  },
+  {
     id: "general",
     label: "General letter",
     shortLabel: "Letter",
@@ -303,6 +340,7 @@ export function matchLetterType(itemName) {
     "violation_resolution",
     "good_standing_request",
     "code_compliance_safety_report",
+    "work_confirmation",
     "general",
   ];
   for (const id of order) {
@@ -481,6 +519,16 @@ export function letterInvoiceDescription(type, answers = {}, siteAddress = "") {
         "verifying compliance with the applicable code sections, and assessing occupant safety.",
       "Includes preparation of the signed report on company letterhead with the supporting code references."
     );
+  } else if (type?.id === "work_confirmation") {
+    lines.push(
+      `Work confirmation / compliance letter${at}.`,
+      "Price includes preparing the signed confirmation-of-completed-work letter on company letterhead, describing the work performed" +
+        (a.policyNumber || a.recommendationRef
+          ? " with the insurance policy and recommendation references"
+          : "") +
+        ".",
+      "Includes review, signature, and delivery of the finished document for submission to the insurance carrier or agency."
+    );
   } else if (type?.id === "owner_inspection_request") {
     lines.push(
       `Owner inspection request${a.permitNumber ? ` for permit ${a.permitNumber}` : ""}${at}.`,
@@ -500,6 +548,30 @@ export function letterInvoiceDescription(type, answers = {}, siteAddress = "") {
   }
 
   return lines.filter(Boolean).join("\n");
+}
+
+/**
+ * Work-description seed for the work-confirmation letter — "the description of
+ * the work for the letter takes the information from what's being filled in."
+ * Pulls the line descriptions already written on the job's invoice / estimate
+ * (same source order the pay page uses), skipping the letter product lines
+ * themselves; falls back to the job title.
+ */
+export function jobWorkDescriptionSeed(job = {}) {
+  const lineSets = [job?.changeOrderLines, job?.invoiceLines, job?.items, job?.estimateLines];
+  const parts = [];
+  for (const set of lineSets) {
+    if (!Array.isArray(set) || !set.length) continue;
+    for (const ln of set) {
+      const itemName = String(ln?.itemName || ln?.item || "");
+      if (itemName && matchLetterType(itemName)) continue; // the letter line is not the work
+      const d = String(ln?.description || itemName || "").trim();
+      if (d && !parts.includes(d)) parts.push(d);
+    }
+    if (parts.length) break;
+  }
+  if (parts.length) return parts.join("\n").slice(0, 2000);
+  return String(job?.title || "").trim();
 }
 
 /** Empty answers map for a type. */
@@ -584,6 +656,16 @@ export function seedLetterAnswersFromJob(job = {}, type, profile = null) {
   }
   if (type.id === "shared_meter_affidavit" && !answers.corrective) {
     answers.corrective = "Reconfigured wiring so this unit's meter only measures this unit";
+  }
+  if (type.id === "work_confirmation") {
+    // Auto-populate the letter's work description from what's already filled
+    // in on the job (invoice / estimate line descriptions, then job title).
+    if (!answers.workDescription) {
+      answers.workDescription = jobWorkDescriptionSeed(job);
+    }
+    if (!answers.insured) {
+      answers.insured = job.businessName || job.customer || job.personName || "";
+    }
   }
 
   return answers;

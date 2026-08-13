@@ -2432,6 +2432,7 @@ export default function JobDetail() {
               message: model.message,
               subject: model.subject,
               emailPolicy: model.emailPolicy,
+              attachmentRows: model.attachmentRows,
             });
             if (result?.ok) {
               try {

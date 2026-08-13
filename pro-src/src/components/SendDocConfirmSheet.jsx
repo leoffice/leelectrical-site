@@ -1,6 +1,6 @@
 // Pre-send confirmation — recipient, subject, body, attachment, pay link. Explicit Approve required.
 // When the typed email differs from the customer: Keep this email | Use it once.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import {
   buildSendDocConfirm,
@@ -10,6 +10,12 @@ import {
   EMAIL_POLICY_KEEP,
   EMAIL_POLICY_ONCE,
 } from "../lib/sendDocConfirm.js";
+import {
+  attachmentOptionLabel,
+  defaultAttachmentKeys,
+  listSendAttachmentOptions,
+  selectedAttachmentRows,
+} from "../lib/sendAttachmentOptions.js";
 import { DOC_SOURCE_LOCAL } from "../lib/docSource.js";
 
 export default function SendDocConfirmSheet({
@@ -43,6 +49,34 @@ export default function SendDocConfirmSheet({
   const [subject, setSubject] = useState(seed.subject);
   const [message, setMessage] = useState(seed.message);
   const [emailPolicy, setEmailPolicy] = useState(seed.emailPolicy || "");
+
+  // Send-time attachment picker (Levi 2026-08-12): everything on the job —
+  // files attached via the estimate / job info / invoice, plus letterhead
+  // letters — each with its own checkbox. Statements have no job attachments.
+  const attachmentOptions = useMemo(
+    () => (kind === "statement" ? [] : listSendAttachmentOptions({ job })),
+    [job, kind]
+  );
+  const [attKeys, setAttKeys] = useState(() => new Set(defaultAttachmentKeys(attachmentOptions)));
+  // job re-renders on every poll; only newly appearing options get their
+  // default applied — never reset the user's manual unchecks.
+  const seenAttKeysRef = useRef(new Set(attachmentOptions.map((o) => o.key)));
+  useEffect(() => {
+    const seen = seenAttKeysRef.current;
+    const fresh = attachmentOptions.filter((o) => !seen.has(o.key));
+    if (!fresh.length) return;
+    for (const o of fresh) seen.add(o.key);
+    const on = fresh.filter((o) => o.defaultOn).map((o) => o.key);
+    if (on.length) setAttKeys((prev) => new Set([...prev, ...on]));
+  }, [attachmentOptions]);
+  const toggleAttKey = (key) => {
+    setAttKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const next = buildSendDocConfirm({
@@ -173,6 +207,37 @@ export default function SendDocConfirmSheet({
           <span className="font-semibold text-slate-700">File source: </span>
           <span className="text-slate-600">{model.sourceLabel}</span>
         </div>
+        {attachmentOptions.length > 0 ? (
+          <div className="pt-1" data-testid="send-confirm-attachment-picker">
+            <p className="font-semibold text-slate-700 mb-1">Also attach:</p>
+            {attachmentOptions.map((o, i) => (
+              <label
+                key={o.key}
+                className="flex items-start gap-2 py-0.5 cursor-pointer"
+                data-testid={"send-confirm-attachment-pick-" + (i + 1)}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={attKeys.has(o.key)}
+                  onChange={() => toggleAttKey(o.key)}
+                  aria-label={"Attach " + (o.name || "file") + " to this email"}
+                  data-testid={"send-confirm-attachment-box-" + (i + 1)}
+                />
+                <span className="text-slate-700 min-w-0">
+                  <span className="block truncate">
+                    {o.isLetter ? "✉" : o.isImage ? "🖼" : "📎"} {o.name}
+                  </span>
+                  {attachmentOptionLabel(o) ? (
+                    <span className="block text-[11px] text-slate-500 truncate">
+                      {attachmentOptionLabel(o)}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : null}
         {model.withPay ? (
           <div data-testid="send-confirm-pay">
             <span className="font-semibold text-slate-700">Payment link: </span>
@@ -197,7 +262,13 @@ export default function SendDocConfirmSheet({
         type="button"
         className="btn-brand w-full mb-2"
         disabled={!ok || busy}
-        onClick={() => onApprove?.(model)}
+        onClick={() =>
+          onApprove?.(
+            attachmentOptions.length
+              ? { ...model, attachmentRows: selectedAttachmentRows(attachmentOptions, attKeys) }
+              : model
+          )
+        }
         data-testid="send-confirm-approve"
       >
         {busy ? "Sending…" : error ? "↻ Retry send" : "✓ Approve & send"}

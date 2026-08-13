@@ -52,6 +52,10 @@ import {
 } from "../lib/letterDraft.js";
 import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
 import { isImageAttachment } from "../lib/letterPhotos.js";
+import {
+  listSendAttachmentOptions,
+  selectedAttachmentRows,
+} from "../lib/sendAttachmentOptions.js";
 import { confirmDocSave, rememberDocSave } from "../lib/docOutbox.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
@@ -1462,6 +1466,12 @@ export default function DocBuilderSheet({
 
   const emailAttachments = () => attachments.filter((a) => a.attachToEmail !== false);
 
+  // Every attachment this send could carry — session rows PLUS what is already
+  // saved on the job (estimate / job-info / invoice attach points all write to
+  // job.attachments) and letter drafts. Feeds the compose sheet's picker.
+  const sendAttachmentOptions = () =>
+    listSendAttachmentOptions({ job, docAttachments: attachments, letterDrafts });
+
   const ensureJobId = async () => {
     if (job.id) return job.id;
     if (!draftMode) return null;
@@ -1901,9 +1911,18 @@ export default function DocBuilderSheet({
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
 
-      // Levi decides per send whether the letter / photos ride along.
+      // Levi decides per send WHICH attachments ride along (picker keys), with
+      // the old all-or-nothing boolean kept for legacy callers / stashed sends.
       const wantAttachments = opts.includeAttachments !== false;
-      const attsForEmail = send ? (wantAttachments ? emailAttachments() : []) : attachments;
+      const attsForEmail = send
+        ? Array.isArray(opts.attachmentKeys)
+          ? wantAttachments
+            ? selectedAttachmentRows(sendAttachmentOptions(), opts.attachmentKeys)
+            : []
+          : wantAttachments
+            ? emailAttachments()
+            : []
+        : attachments;
       const attsForQbo = attachments;
       const docSource = resolveDocSource(
         opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO,
@@ -2219,7 +2238,7 @@ export default function DocBuilderSheet({
         const recurNote =
           showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
         const attNote =
-          send && attachments.length
+          send && (attachments.length || attsForEmail.length)
             ? attsForEmail.length
               ? " · " + attsForEmail.length + " file(s) in email"
               : " · files on job only (not emailed)"
@@ -2624,11 +2643,7 @@ export default function DocBuilderSheet({
             })
           }
           initialIncludePayLink={includePayLinkSeed}
-          attachmentCount={emailAttachments().length}
-          attachmentLabel={emailAttachments()
-            .map((a) => a.name)
-            .filter(Boolean)
-            .join(", ")}
+          attachmentOptions={sendAttachmentOptions()}
           qboOn={qboOn}
           saving={saving}
           onClose={() => {

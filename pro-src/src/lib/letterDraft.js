@@ -106,6 +106,19 @@ function shortDevice(breakerRating) {
   return s.trim() || "protective device";
 }
 
+/** "2026-08-11" → "August 11, 2026" (anything unparseable passes through). */
+function letterDateWords(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(iso || "").trim();
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const mo = months[Number(m[2]) - 1];
+  if (!mo) return String(iso || "").trim();
+  return `${mo} ${Number(m[3])}, ${m[1]}`;
+}
+
 /** Split a free-form notes list into clean items. */
 function cleanList(raw) {
   return String(raw || "")
@@ -312,6 +325,34 @@ function buildLetterBodyCore(type, answers = {}, job = {}) {
     return [p1, p2Bits.join(" "), code, closeBits.join(" ")].filter(Boolean).join("\n\n");
   }
 
+  if (type.id === "work_confirmation") {
+    // Notes → letter (approved 2026-08-12, modeled on the 73-75 Grand Ave
+    // exit-sign insurance letter): confirm → work description (auto-filled
+    // from the job) → workmanship/code paragraph → compliance close.
+    const insured = String(a.insured || "").trim();
+    const when = letterDateWords(a.workDate);
+    const refBits = [];
+    if (a.recommendationRef) refBits.push(`addressing ${String(a.recommendationRef).trim()}`);
+    if (a.policyNumber) refBits.push(`under policy ${String(a.policyNumber).trim()}`);
+    const workItems = String(a.workDescription || "")
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const work = workItems.map((s) => sentence(s)).join(" ");
+    return [
+      `We hereby confirm that ${company} has completed the electrical work described below at **${site}**${
+        insured ? `, for the insured, ${insured}` : ""
+      }${refBits.length ? `, ${refBits.join(", ")}` : ""}.`,
+      work ? `**Scope of completed work:** ${work}` : "",
+      `The work was completed${when ? ` on ${when}` : ""} by our licensed electricians in a professional and workmanlike manner, in accordance with the applicable electrical code requirements, and was left in safe, working order.`,
+      `This letter is provided as confirmation that the above work has been completed${
+        a.recommendationRef ? ` and that ${String(a.recommendationRef).trim()} has been addressed` : ""
+      }. Please contact our office with any questions.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
   if (type.id === "owner_inspection_request") {
     const reason = a.contractorReason || "is no longer available to close the permit";
     return [
@@ -413,7 +454,8 @@ export function defaultReLine(type, job = {}, answers = {}) {
   if (
     type?.id === "load_letter" ||
     type?.id === "equipment_safety_inspection" ||
-    type?.id === "shared_meter_affidavit"
+    type?.id === "shared_meter_affidavit" ||
+    type?.id === "work_confirmation"
   ) {
     return site || (type?.id === "shared_meter_affidavit" ? "Statement Regarding Shared Meter Condition" : type?.label || "Letter");
   }

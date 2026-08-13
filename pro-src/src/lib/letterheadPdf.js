@@ -324,6 +324,10 @@ const TYPE_HEADINGS = {
     title: "AFFIDAVIT",
     subtitle: "Statement Regarding Shared Meter Condition",
   },
+  work_confirmation: {
+    eyebrow: "COMPLIANCE  ·  CONFIRMATION OF COMPLETED WORK",
+    title: "WORK CONFIRMATION",
+  },
 };
 
 /** Company header (page 1) — logo left, company block right, accent bar. */
@@ -588,6 +592,20 @@ export function buildLetterheadPdf({
           }
           if (a.accountNumber) {
             metaLine(pg, M, y, "Con Edison Account:", a.accountNumber);
+            y += 14;
+          }
+        }
+        if (draft?.typeId === "work_confirmation") {
+          if (a.insured) {
+            metaLine(pg, M, y, "Insured:", a.insured);
+            y += 14;
+          }
+          if (a.policyNumber) {
+            metaLine(pg, M, y, "Policy #:", a.policyNumber);
+            y += 14;
+          }
+          if (a.recommendationRef) {
+            metaLine(pg, M, y, "Reference:", a.recommendationRef);
             y += 14;
           }
         }

@@ -177,6 +177,13 @@ export function useDoSend() {
 
     // QuickBooks path — command bus (host has QBO credentials). Fast queue.
     if (docSource !== DOC_SOURCE_LOCAL) {
+      // Picker selection rides to the host so the QBO email carries the same files.
+      const pickedAtts = Array.isArray(opts.attachmentRows)
+        ? {
+            attachments: opts.attachmentRows,
+            includeAttachmentsInEmail: opts.attachmentRows.length > 0,
+          }
+        : {};
       const payload =
         kind === "invoice"
           ? {
@@ -189,8 +196,9 @@ export function useDoSend() {
               message,
               subject,
               job,
+              ...pickedAtts,
             }
-          : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
+          : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job, ...pickedAtts };
       const idk =
         kind === "invoice" && withPay
           ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
@@ -221,6 +229,21 @@ export function useDoSend() {
         docPdfFilename(kind, job, no) ||
         `${kind}-${no || "document"}.pdf`;
 
+      // Picker selection (confirm sheet) → exactly these rows travel; an
+      // undefined selection keeps the adapter's derive-from-job behavior.
+      let extraAttachments;
+      if (Array.isArray(opts.attachmentRows)) {
+        try {
+          const { buildEmailAttachmentParts } = await import("../lib/emailAttachments.js");
+          extraAttachments = await buildEmailAttachmentParts({
+            attachments: opts.attachmentRows,
+            letterDrafts: job?.letterDrafts,
+          });
+        } catch {
+          extraAttachments = [];
+        }
+      }
+
       try {
         if (typeof api.sendDocEmailNow === "function") {
           res = await api.sendDocEmailNow(job, kind, {
@@ -231,6 +254,7 @@ export function useDoSend() {
             payUrl: opts.payUrl || "",
             pdfB64: pdfB64 || undefined,
             filename,
+            extraAttachments,
           });
           if (res?.pdfB64) pdfB64 = res.pdfB64;
           if (res?.filename) filename = res.filename;
@@ -339,6 +363,12 @@ export function useDoSend() {
                         viewLink: res.viewLink,
                       }
                     : { ok: false, reason: detail },
+                  ...(Array.isArray(opts.attachmentRows)
+                    ? {
+                        attachments: opts.attachmentRows,
+                        includeAttachmentsInEmail: opts.attachmentRows.length > 0,
+                      }
+                    : {}),
                 }
               : {
                   email,
@@ -361,6 +391,12 @@ export function useDoSend() {
                         viewLink: res.viewLink,
                       }
                     : { ok: false, reason: detail },
+                  ...(Array.isArray(opts.attachmentRows)
+                    ? {
+                        attachments: opts.attachmentRows,
+                        includeAttachmentsInEmail: opts.attachmentRows.length > 0,
+                      }
+                    : {}),
                 };
           const idk = "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
           await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
@@ -3563,6 +3599,7 @@ export function PaymentLinkSheet({ job, onClose }) {
             subject: model.subject,
             payUrl: url,
             emailPolicy: model.emailPolicy,
+            attachmentRows: model.attachmentRows,
           });
           if (result?.ok) {
             await afterSendApprovedClose({ ok: true, onClose });
@@ -3830,6 +3867,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             message: model.message,
             subject: model.subject,
             emailPolicy: model.emailPolicy,
+            attachmentRows: model.attachmentRows,
           });
           if (result?.ok) {
             await afterSendApprovedClose({ ok: true, onClose });
@@ -4112,6 +4150,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             message: model.message,
             subject: model.subject,
             emailPolicy: model.emailPolicy,
+            attachmentRows: model.attachmentRows,
           });
           if (result?.ok) {
             await afterSendApprovedClose({ ok: true, onClose });
