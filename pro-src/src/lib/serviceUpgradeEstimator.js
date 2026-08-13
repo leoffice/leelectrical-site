@@ -244,6 +244,12 @@ export function conduitSellPerFoot(inch, fees) {
 /**
  * Build customer-facing scope bullets (white-label process).
  * Describes work only — no internal "$ math" or meta notes like "(separate line)".
+ *
+ * Levi 2026-08-13 wording:
+ * - "Installation of 1 m, 200 A single-phase, and 1 panel, 200 A main breaker for the commercial space."
+ * - No "additional-meter rate" language
+ * - No PLP run line unless > 3 ft (then additional conduit wording)
+ * - Service outlet / grounding / light stay in price language, not double-listed in bullets
  */
 export function buildScopeBullets(answers, fees) {
   const a = {
@@ -258,21 +264,24 @@ export function buildScopeBullets(answers, fees) {
     const s = sizeById(m.sizeId);
     const role = roleLabel(m.role);
     const feet = feetForMeter(m, a, f);
-    const parts = [
-      `Install meter ${i + 1} (${role}, ${s.label})`,
-      m.includePanel !== false ? "with new panel" : "without new panel",
-    ];
-    if (i > 0) parts.push("at additional-meter rate");
-    // Only call out long meter-to-panel runs (over 3 ft) — Levi
-    if (feet > 3) parts.push(`${feet} ft meter-to-panel run`);
-    bullets.push(parts.join(" "));
+    // Levi: installation of 1 m, {size}, and 1 panel, {amps} main breaker for the {role}
+    const panelBit =
+      m.includePanel !== false
+        ? `and 1 panel, ${s.amps} A main breaker`
+        : "without a new panel";
+    let line = `Installation of 1 m, ${s.label}, ${panelBit} for the ${role}`;
+    // Only call out long meter-to-panel runs (over 3 ft) — additional conduit, not a free 1 ft PLP line
+    if (feet > 3) {
+      line += `; additional conduit ${feet} ft meter-to-panel`;
+    }
+    bullets.push(line);
   });
 
+  // PLP equipment run: only when over 3 ft (Levi — drop the 1 ft noise)
   const hasPlp = a.meters.some((m) => m.role === "plp");
-  if (hasPlp) {
-    bullets.push(
-      `PLP meter to PLP equipment run: ${Number(a.feetPlp) || 0} ft`
-    );
+  const plpFt = Number(a.feetPlp) || 0;
+  if (hasPlp && plpFt > 3) {
+    bullets.push(`Additional conduit: PLP meter to PLP equipment, ${plpFt} ft`);
   }
 
   if (Number(a.feetMainService) > 0) {
@@ -293,9 +302,8 @@ export function buildScopeBullets(answers, fees) {
     );
   }
 
-  if (a.includeAlways !== false) {
-    bullets.push("Service outlet, grounding system, and service light");
-  }
+  // Do NOT re-list service outlet / grounding / service light here — covered by the
+  // "Included in this price is labor and materials…" footer (Levi 2026-08-13).
 
   return bullets;
 }
@@ -466,9 +474,10 @@ export function mainServicePerFoot(mainAmps, fees) {
 
 export function roleLabel(role) {
   const r = String(role || "residential");
-  if (r === "plp") return "PLP / common";
-  if (r === "commercial") return "Commercial";
-  return "Residential";
+  // Levi 2026-08-13: customer-facing “for the commercial space / residential account”
+  if (r === "plp") return "PLP / common area";
+  if (r === "commercial") return "commercial space";
+  return "residential account";
 }
 
 /** Meter fee by index: first full price, 2nd+ discounted. */
@@ -592,26 +601,18 @@ export function buildServiceUpgradeEstimate(answers) {
 
   const workBullets = buildScopeBullets(a, f);
 
-  // NOT INCLUDED only lists options that were NOT turned on (no "if not selected" lies)
-  const includedTxt = included.length ? included.join("; ") : "See scope below";
-  const notInc = [];
-  if (!a.includeFiling) notInc.push("Filing permit and utility case paperwork");
-  if (!a.includeRemoval) notInc.push("Removal of existing equipment");
-  if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
-  if (!a.includeTrenching) notInc.push("Digging and trenching");
-  // When conduit is on but trenching off, still call out dig not included on main scope
-  if (a.includeConduit && a.conduitPath !== "overhead" && !a.includeTrenching) {
-    if (!notInc.includes("Digging and trenching")) notInc.push("Digging and trenching");
-  }
-
+  // Levi 2026-08-13: do not list conduit/digging as NOT INCLUDED on the main package
+  // when they are simply off — only when a *separate priced line* exists for that work
+  // do we keep exclusions on *that* line (see describeUndergroundConduit / describeTrenching).
+  // Main description: labor+materials footer only; no duplicate INCLUDED: outlet list.
+  const meterWord = a.meters.length === 1 ? "meter" : "meters";
   const desc = [
-    `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
+    `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} ${meterWord}.`,
     "",
-    "SCOPE:",
+    "The following is included in the upgrade:",
     ...workBullets.map((b) => `- ${b}`),
     "",
-    `INCLUDED: ${includedTxt}.`,
-    notInc.length ? `NOT INCLUDED: ${notInc.join("; ")}.` : "",
+    "Included in this price is labor and materials for the above description only.",
     a.notes ? `\nNotes: ${a.notes}` : "",
   ]
     .filter(Boolean)
@@ -687,8 +688,9 @@ export function buildServiceUpgradeEstimate(answers) {
       return `${m.role} ${s.label}`;
     })
     .join("; ");
+  const meterWordTitle = a.meters.length === 1 ? "meter" : "meters";
   const title =
-    `Service upgrade - ${a.meters.length} meter(s): ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
+    `Service upgrade - ${a.meters.length} ${meterWordTitle}: ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
     (a.notes ? `\n\n${a.notes}` : "");
 
   const total = money(lines.reduce((s, ln) => s + parseAmount(ln.amount), 0));

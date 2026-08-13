@@ -49,7 +49,14 @@ describe("serviceUpgradeEstimator", () => {
     expect(r.total).toBeLessThan(12000);
     // Main work is one Service Upgrade line
     expect(r.lines.some((l) => /Service Upgrade/i.test(l.itemName))).toBe(true);
-    expect(r.lines[0].description).toMatch(/SCOPE/i);
+    expect(r.lines[0].description).toMatch(/The following is included in the upgrade/i);
+    expect(r.lines[0].description).toMatch(/4 meters\./i);
+    expect(r.lines[0].description).toMatch(/Installation of 1 m,/i);
+    expect(r.lines[0].description).toMatch(
+      /Included in this price is labor and materials for the above description only/i
+    );
+    expect(r.lines[0].description).not.toMatch(/additional-meter rate/i);
+    expect(r.lines[0].description).not.toMatch(/\bSCOPE:/i);
   });
 
   it("blocks 3ph meters on 1ph main", () => {
@@ -101,16 +108,19 @@ describe("serviceUpgradeEstimator", () => {
     expect(main?.description).toBeTruthy();
     // No Unicode arrows / multiply / bullets that Helvetica PDF maps to "?"
     expect(main.description).not.toMatch(/[→×•↔—–]/);
-    expect(main.description).toMatch(/PLP meter to PLP equipment/);
+    // PLP run only when > 3 ft — 1 ft is silent (Levi 2026-08-13)
+    expect(main.description).not.toMatch(/PLP meter to PLP equipment run: 1 ft/);
     // Scope describes work — no internal $ math (white-label process)
     expect(main.description).not.toMatch(/\$\d/);
     expect(main.description).toMatch(/end-line box to metering/);
-    expect(main.description).toMatch(/Install meter 1/);
-    // Selected add-ons are separate lines — do not list them as NOT INCLUDED
-    expect(main.description).not.toMatch(/Filing permit and utility/);
-    expect(main.description).toMatch(/NOT INCLUDED: Removal of existing equipment/);
-    // Dig called out when conduit on without trenching
-    expect(main.description).toMatch(/Digging and trenching/);
+    expect(main.description).toMatch(/Installation of 1 m,/);
+    expect(main.description).toMatch(/residential account|commercial space|PLP \/ common/i);
+    // No NOT INCLUDED dump on main package for conduit/dig (those live on their own lines if priced)
+    expect(main.description).not.toMatch(/NOT INCLUDED:/i);
+    expect(main.description).not.toMatch(/additional-meter rate/i);
+    // Conduit is a separate line when on — dig exclusion stays on conduit description
+    const conduit = r.lines.find((l) => /Conduit/i.test(l.itemName));
+    expect(conduit?.description).toMatch(/does not include the cost of digging/i);
   });
 
   it("underground conduit describes utility path and excludes dig / cement", () => {
