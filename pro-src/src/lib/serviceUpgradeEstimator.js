@@ -187,6 +187,8 @@ export function defaultAnswers(partial = {}) {
     personName: "",
     email: "",
     phone: "",
+    /** QBO customer id when picked from CustomerSearch — must survive save */
+    qboCustomerId: "",
     serviceAddress: "",
     billingAddress: "",
     mainAmps: 200,

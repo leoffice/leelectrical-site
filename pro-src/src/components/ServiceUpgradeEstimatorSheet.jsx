@@ -244,6 +244,10 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         serviceAddress: answers.serviceAddress || "",
         address: answers.serviceAddress || "",
         notes: answers.notes || "",
+        // Keep estimate on the QBO customer record (never drop after regenerate)
+        qboCustomerId: answers.qboCustomerId || prefill.qboCustomerId || "",
+        customer: answers.customerName || prefill.customer || prefill.businessName || "",
+        businessName: answers.customerName || prefill.customer || prefill.businessName || "",
       };
 
       // Re-run generator on an existing job (Edit with estimate generator)
@@ -269,6 +273,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           serviceAddress: answers.serviceAddress || "",
           address: answers.serviceAddress || "",
           billingAddress: answers.billingAddress || answers.serviceAddress || "",
+          qboCustomerId: answers.qboCustomerId || prefill.qboCustomerId || "",
           title: built.title,
           amount: fmt$(built.total) || String(built.total),
           estimateLines: built.lines,
@@ -340,6 +345,9 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                 phone: c.phone || "",
                 billingAddress: c.billingAddress || c.addr || "",
                 serviceAddress: answers.serviceAddress || c.serviceAddress || c.addr || "",
+                // Levi 2026-08-13: keep QBO customer id so the estimate stays on the
+                // customer page (jobsForCustomerKey q:… was hiding unlinked locals).
+                qboCustomerId: String(c.qboId || c.qboCustomerId || c.id || "").trim(),
               });
             }}
           />

@@ -495,19 +495,33 @@ export function jobsForCustomerKey(jobs, key, hints, qboIndex) {
   if (key.startsWith("q:")) {
     const qid = key.slice(2);
     const byId = active.filter((j) => String(j.qboCustomerId || "").trim() === qid);
-    if (byId.length) return byId;
+    // Levi 2026-08-13: local estimates often had empty qboCustomerId after estimate
+    // generator save — if we ONLY return byId when any QBO-linked job exists, those
+    // local estimates vanish from the customer page. Union name-matched locals too.
     const h = hints || {};
     const names = [h.name, h.businessName, h.personName].filter(Boolean);
-    for (const nm of names) {
-      const hit = active.filter(
-        (j) =>
-          !j.clientGroup &&
-          (customerNameMatches(j, nm) ||
-            customerNameMatches({ customer: j.personName }, nm) ||
-            customerNameMatches({ customer: j.businessName }, nm))
-      );
-      if (hit.length) return hit;
-    }
+    const byName = [];
+    const seen = new Set(byId.map((j) => String(j.id)));
+    const pushNameHits = (nm) => {
+      for (const j of active) {
+        if (!j || j.clientGroup) continue;
+        const id = String(j.id || "");
+        if (seen.has(id)) continue;
+        if (
+          customerNameMatches(j, nm) ||
+          customerNameMatches({ customer: j.personName }, nm) ||
+          customerNameMatches({ customer: j.businessName }, nm)
+        ) {
+          // Prefer unlinked locals + same-name jobs without a different QBO id
+          const jq = String(j.qboCustomerId || "").trim();
+          if (jq && jq !== qid) continue;
+          seen.add(id);
+          byName.push(j);
+        }
+      }
+    };
+    for (const nm of names) pushNameHits(nm);
+    if (byId.length || byName.length) return [...byId, ...byName];
     return [];
   }
   if (key.startsWith("c:")) {
