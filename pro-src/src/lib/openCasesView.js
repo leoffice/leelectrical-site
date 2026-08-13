@@ -8,6 +8,7 @@
 // stays live because it re-derives from `jobs` on every board change.
 
 import { caseTrackIsStale, staleDays } from "./permitConfirm.js";
+import { getInquiry, inquiryPhase } from "./permitInquiry.js";
 
 /**
  * Needs-attention for the redesign = the agency ball is genuinely with us
@@ -165,7 +166,13 @@ export function buildRailSteps(agency, stage, tone) {
  * Buckets: 'completed' (every track passed/terminal) · 'needs' (any track needs
  * action OR is stale >7d) · 'progress' (everything else).
  */
-export function buildOpenCaseCards({ board, caseRuns = [], now = Date.now(), config } = {}) {
+export function buildOpenCaseCards({
+  board,
+  caseRuns = [],
+  jobsById = null,
+  now = Date.now(),
+  config,
+} = {}) {
   const byJob = new Map();
   for (const sec of board?.sections || []) {
     for (const row of sec.cases || []) {
@@ -187,7 +194,17 @@ export function buildOpenCaseCards({ board, caseRuns = [], now = Date.now(), con
       const tone = trackTone(row);
       const timeline = buildTrackTimeline(row);
       const needs = (trackNeedsAttention(row) || stale) && tone !== "done";
+      // Con Ed inquiry lifecycle (composer + chip on needs-attention cards)
+      const job = jobsById?.get?.(row.jobId) || null;
+      let inquiry = null;
+      if (row.agency === "coned" && job) {
+        const phase = inquiryPhase(job, { now, config });
+        if (phase !== "none" || needs) {
+          inquiry = { phase, blob: getInquiry(job) };
+        }
+      }
       g.tracks.push({
+        inquiry,
         key: row.key,
         agency: row.agency === "coned" ? "coned" : "dob",
         agencyLabel: row.agency === "coned" ? "Con Edison" : "DOB / City",

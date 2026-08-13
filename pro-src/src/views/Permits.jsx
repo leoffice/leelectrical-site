@@ -120,6 +120,33 @@ import {
   OpenCaseFilter,
   OpenCaseCard,
 } from "./permitsOpenCases.jsx";
+import {
+  INQUIRY_CMD,
+  buildInquiryPayload,
+  buildInquirySendPatch,
+  buildInquirySubmittedPatch,
+  buildInquiryAnswerPatch,
+  findInquiryCommand,
+  getInquiry,
+  inquiryIdempotencyKey,
+  inquiryPhase,
+  matchInquiryReplyInsight,
+} from "../lib/permitInquiry.js";
+import { buildActionNudgePatch } from "../lib/permitConfirm.js";
+import { renewPipelineState } from "../lib/renewPipeline.js";
+import {
+  buildSequenceStepConfirmedPatch,
+  buildSequenceStepFiredPatch,
+  buildSequenceStepPayload,
+  jobHasNewAccountSequence,
+  newAccountSequenceState,
+  sequenceActionKey,
+} from "../lib/newAccountSequence.js";
+import {
+  InquirySurface,
+  NewAccountSequenceCard,
+  RenewPipelineBeads,
+} from "./permitsDeployExtras.jsx";
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
   if (row.health === "blocked-by-us") return "bg-red-100 text-red-800";
@@ -432,6 +459,7 @@ function RenewalNotificationsCard({
                         {h.customer || "—"}
                         {h.to ? ` · ${h.to}` : ""}
                       </div>
+                      <RenewPipelineBeads state={{ idx: 0, key: "notified" }} />
                       <div className="text-slate-500 mt-0.5 flex flex-wrap gap-x-2 items-center">
                         <span>{formatSendHistoryWhen(h.at)}</span>
                         {h.placeholderInvoiceNo ? (
@@ -1031,6 +1059,10 @@ const DeployQueueRow = memo(function DeployQueueRow({
               Next: {item.nextHint}
             </div>
           ) : null}
+          {/* Renewal pipeline — one readable strip (Levi 2026-08-13) */}
+          {item.source === "permit_renew" || item.kind === "Renew Permit" ? (
+            <RenewPipelineBeads state={renewPipelineState(item.permitRenew || {})} />
+          ) : null}
           {needsInfo && !expanded ? (
             <div
               className="text-[11px] text-amber-900 font-semibold mt-1"
@@ -1310,8 +1342,18 @@ const DeployQueueRow = memo(function DeployQueueRow({
 });
 
 export default function Permits() {
-  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, whenJobSaved, api } =
-    useStore();
+  const {
+    jobs,
+    emailInsights,
+    events,
+    commands,
+    patchAndSave,
+    showToast,
+    enqueue,
+    createJob,
+    whenJobSaved,
+    api,
+  } = useStore();
   const [phaseABusy, setPhaseABusy] = useState(false);
   /** { draft, payUrl, job, created } — open compose before send (Levi 2026-08-10). */
   const [renewCompose, setRenewCompose] = useState(null);
@@ -2853,8 +2895,8 @@ export default function Permits() {
   // Open Cases cards — derived once per board/caseRuns change (snappy: expand,
   // filter, and tab switches never regroup).
   const openCases = useMemo(
-    () => buildOpenCaseCards({ board, caseRuns }),
-    [board, caseRuns]
+    () => buildOpenCaseCards({ board, caseRuns, jobsById }),
+    [board, caseRuns, jobsById]
   );
   const visibleCaseCards = useMemo(
     () => filterOpenCaseCards(openCases.cards, casesFilter),
@@ -2891,6 +2933,218 @@ export default function Permits() {
       handleRenewSchedule,
     ]
   );
+
+  /* ---------- Phase 2: inquiry lifecycle (composer → Israel → confirm → reply) ---------- */
+
+  /** Re-nudge Israel about a stuck action (message via the fail-report bus +
+   *  nudge stamped on the confirmation record). NEVER auto-refires (Levi #5). */
+  const nudgeIsrael = useCallback(
+    async (jobId, actionKey, summary) => {
+      const job = jobsById.get(jobId);
+      if (!job) return;
+      try {
+        if (enqueue) {
+          const { reportPaperworkFailOnce } = await import("../lib/paperworkFailReport.js");
+          await reportPaperworkFailOnce(
+            {
+              kind: "nudge",
+              error: `NUDGE (no confirmation >24h): ${summary}`.slice(0, 480),
+              jobId,
+              customer: job.customer || "",
+              address: job.serviceAddress || job.address || "",
+              phase: "permits_confirm_nudge",
+              force: true,
+            },
+            enqueue
+          );
+        }
+        await patchAndSave(jobId, buildActionNudgePatch(job, actionKey, { note: summary }));
+        showToast("Re-nudge sent to Israel — the action stays offered until confirmed");
+      } catch {
+        showToast("Couldn't send the nudge — try again");
+      }
+    },
+    [jobsById, enqueue, patchAndSave, showToast]
+  );
+
+  const handleInquirySend = useCallback(
+    async (track, text) => {
+      const jobId = track?.row?.jobId;
+      const job = jobsById.get(jobId);
+      if (!job || !text) return;
+      const caseNumber = track?.caseNumber || track?.row?.caseNumber || "";
+      try {
+        const cmd = await enqueue(
+          INQUIRY_CMD,
+          jobId,
+          buildInquiryPayload(job, { text, caseNumber }),
+          "judgment",
+          inquiryIdempotencyKey(jobId)
+        );
+        if (!cmd) {
+          showToast("Couldn't reach the command bus — inquiry not sent");
+          return;
+        }
+        await patchAndSave(jobId, buildInquirySendPatch(job, { text, caseNumber }));
+        showToast("Inquiry queued for Israel — awaiting submission confirmation");
+      } catch {
+        showToast("Couldn't send the inquiry — try again");
+      }
+    },
+    [jobsById, enqueue, patchAndSave, showToast]
+  );
+
+  const handleInquiryConfirmSubmitted = useCallback(
+    async (track) => {
+      const jobId = track?.row?.jobId || track?.jobId;
+      const job = jobsById.get(jobId);
+      if (!job) return;
+      await patchAndSave(
+        jobId,
+        buildInquirySubmittedPatch(job, { by: "agent", source: "manual_confirm" })
+      );
+      showToast("Marked submitted — now waiting up to 48h for Con Ed's reply");
+    },
+    [jobsById, patchAndSave, showToast]
+  );
+
+  const handleInquiryNudge = useCallback(
+    (track) => {
+      const jobId = track?.row?.jobId || track?.jobId;
+      const job = jobsById.get(jobId);
+      if (!jobId || !job) return;
+      const inq = getInquiry(job);
+      void nudgeIsrael(
+        jobId,
+        `inquiry:${jobId}`,
+        `Con Ed inquiry for ${job.serviceAddress || job.customer || jobId}${inq?.caseNumber ? ` (case ${inq.caseNumber})` : ""}: ${String(inq?.text || "").slice(0, 120)}`
+      );
+    },
+    [jobsById, nudgeIsrael]
+  );
+
+  const inquiryHandlers = useMemo(
+    () => ({
+      send: handleInquirySend,
+      confirmSubmitted: handleInquiryConfirmSubmitted,
+      nudge: handleInquiryNudge,
+    }),
+    [handleInquirySend, handleInquiryConfirmSubmitted, handleInquiryNudge]
+  );
+
+  /** Auto-advance from real notifications: bus command done → submitted;
+   *  matching agency email → answer posts on the card. Never self-reports. */
+  const inquiryAdvancedRef = React.useRef(new Set());
+  useEffect(() => {
+    if (!jobs?.length || typeof patchAndSave !== "function") return;
+    for (const job of jobs) {
+      const inq = getInquiry(job);
+      if (!inq || !job?.id) continue;
+      if (inq.status === "sent") {
+        const cmd = findInquiryCommand(commands, job.id);
+        if (cmd && String(cmd.status) === "done") {
+          const guard = `submit:${job.id}:${cmd.id}`;
+          if (!inquiryAdvancedRef.current.has(guard)) {
+            inquiryAdvancedRef.current.add(guard);
+            void patchAndSave(
+              job.id,
+              buildInquirySubmittedPatch(job, { by: "agent", source: `cmd:${cmd.id}` })
+            ).catch(() => inquiryAdvancedRef.current.delete(guard));
+          }
+          continue;
+        }
+      }
+      if (inq.status === "submitted" || inq.status === "sent") {
+        const m = matchInquiryReplyInsight(job, emailInsights || []);
+        if (m) {
+          const guard = `answer:${job.id}:${m.source}`;
+          if (!inquiryAdvancedRef.current.has(guard)) {
+            inquiryAdvancedRef.current.add(guard);
+            void patchAndSave(job.id, buildInquiryAnswerPatch(job, m)).catch(() =>
+              inquiryAdvancedRef.current.delete(guard)
+            );
+          }
+        }
+      }
+    }
+  }, [jobs, commands, emailInsights, patchAndSave]);
+
+  /* ---------- Phase 2: new-account stepwise sequences ---------- */
+
+  const newAccountSeqs = useMemo(() => {
+    const out = [];
+    for (const j of jobs || []) {
+      if (!j?.id || !jobHasNewAccountSequence(j)) continue;
+      const seq = newAccountSequenceState(j);
+      if (!seq.complete) out.push({ job: j, seq });
+    }
+    return out.slice(0, 10);
+  }, [jobs]);
+
+  const handleSequenceDeployStep = useCallback(
+    async (job, step) => {
+      if (!job?.id || !step) return;
+      try {
+        const cmd = await enqueue(
+          step.cmd || "israel_task",
+          job.id,
+          buildSequenceStepPayload(job, step),
+          "judgment",
+          `newacct:${job.id}:${step.id}`
+        );
+        if (!cmd) {
+          showToast("Couldn't reach the command bus — step not deployed");
+          return;
+        }
+        await patchAndSave(job.id, buildSequenceStepFiredPatch(job, step.id));
+        showToast(
+          step.stub
+            ? `Israel task created — “${step.title}” (skill not built yet); confirms when performed`
+            : `Deployed — ${step.title}. Next step unlocks on confirmation.`
+        );
+      } catch {
+        showToast("Couldn't deploy that step — try again");
+      }
+    },
+    [enqueue, patchAndSave, showToast]
+  );
+
+  const handleSequenceConfirmStep = useCallback(
+    async (job, step) => {
+      if (!job?.id || !step) return;
+      await patchAndSave(
+        job.id,
+        buildSequenceStepConfirmedPatch(job, step.id, { by: "agent", source: "manual_confirm" })
+      );
+      showToast(`Confirmed — ${step.title}. Next step unlocked.`);
+    },
+    [patchAndSave, showToast]
+  );
+
+  const handleSequenceNudgeStep = useCallback(
+    (job, step) => {
+      if (!job?.id || !step) return;
+      void nudgeIsrael(
+        job.id,
+        sequenceActionKey(job.id, step.id),
+        `New-account step "${step.title}" for ${job.serviceAddress || job.customer || job.id}`
+      );
+    },
+    [nudgeIsrael]
+  );
+
+  /** Inquiries in flight — surfaced in Notifications to Deploy (Bucket A). */
+  const inquiriesInFlight = useMemo(() => {
+    const out = [];
+    for (const j of jobs || []) {
+      const inq = getInquiry(j);
+      if (!inq || !j?.id) continue;
+      if (["sent", "submitted"].includes(inq.status)) {
+        out.push({ jobId: j.id, job: j, inquiry: inq });
+      }
+    }
+    return out.slice(0, 10);
+  }, [jobs]);
 
   const toggleQueueRow = useCallback((id) => {
     setExpandedIds((m) => ({ ...m, [id]: !m[id] }));
@@ -2943,6 +3197,7 @@ export default function Permits() {
                 card={card}
                 onOpenJob={open}
                 manage={renderTrackManage}
+                inquiryHandlers={inquiryHandlers}
               />
             ))}
           </div>
@@ -2962,43 +3217,50 @@ export default function Permits() {
 
       {/* ============ ACTIONS TO DEPLOY ============ */}
       <section hidden={activeTab !== "deploy"} data-testid="permits-panel-deploy">
-      {/* Renewal Application — pending send notices only; paid → Deploy queue */}
-      <RenewalNotificationsCard
-        jobs={jobs}
-        phaseABusy={phaseABusy}
-        historyTick={historyTick}
-        onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
-        onSendForRow={(row) => {
-          if (!row) return;
-          // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady.
-          // No Hampton fallback — a missing scenario must never send another
-          // customer's permit content.
-          const sc = row.scenario || renewScenarioById(row.scenarioId);
-          if (!sc) {
-            showToast(
-              "This permit isn't in the cache anymore — refresh Permits and try again"
-            );
-            return;
-          }
-          void runRenewNotice("email", sc);
-        }}
-        onResendFromHistory={(h) => {
-          if (!h) return;
-          const sc = renewScenarioById(h.scenarioId);
-          if (!sc) {
-            // Scenario aged out of the cache — never prefill Hampton's content.
-            showToast(
-              `Can't resend — permit ${h.permitNo || h.address || h.scenarioId || ""} is no longer in the cache. Open its pending row to send fresh.`
-            );
-            return;
-          }
-          void runRenewNotice("email", sc, {
-            // On-file only — never pre-fill last custom To
-            defaultTo: sc.realEmail || "",
-            resend: true,
-          });
-        }}
-      />
+
+      {/* ---- Bucket A: Notifications to Deploy (agency actions) ---- */}
+      <div className="flex items-baseline gap-2 px-1 mb-2 mt-1">
+        <h3 className="text-[15px] font-semibold text-slate-900">Notifications to Deploy</h3>
+        <span className="text-[11.5px] text-slate-400">
+          each button performs one concrete action at DOB / Con Ed
+        </span>
+      </div>
+
+      {/* New-account stepwise sequences — each step its own confirmed deploy */}
+      {newAccountSeqs.map(({ job: sj, seq }) => (
+        <NewAccountSequenceCard
+          key={`seq:${sj.id}`}
+          seqJob={sj}
+          seq={seq}
+          onDeployStep={handleSequenceDeployStep}
+          onConfirmStep={handleSequenceConfirmStep}
+          onNudgeStep={handleSequenceNudgeStep}
+        />
+      ))}
+
+      {/* Inquiries in flight — queued from Needs-Attention cards */}
+      {inquiriesInFlight.length ? (
+        <div className="card border border-blue-100 p-3.5 mb-3" data-testid="inquiries-in-flight">
+          <div className="text-[13px] font-semibold text-slate-900 mb-1">
+            Con Ed inquiries in flight
+          </div>
+          {inquiriesInFlight.map(({ jobId, job: ij, inquiry: inq }) => (
+            <div key={`iqf:${jobId}`} className="mt-1">
+              <div className="text-[12.5px] text-slate-600 truncate">
+                {ij.serviceAddress || ij.address || ij.customer}
+                {inq.caseNumber ? ` · ${inq.caseNumber}` : ""}
+              </div>
+              <InquirySurface
+                track={{ row: { jobId }, inquiry: { phase: inquiryPhase(ij), blob: inq } }}
+                onSend={handleInquirySend}
+                onConfirmSubmitted={handleInquiryConfirmSubmitted}
+                onNudge={handleInquiryNudge}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {renewCompose?.draft ? (
         <RenewEmailComposeSheet
           draft={renewCompose.draft}
@@ -3194,6 +3456,50 @@ export default function Permits() {
           )
         ) : null}
       </div>
+
+      {/* ---- Bucket B: Permits that Expired (renewal DB -> notify -> invoice -> paid -> deploy) ---- */}
+      <div className="flex items-baseline gap-2 px-1 mb-2 mt-4">
+        <h3 className="text-[15px] font-semibold text-slate-900">Permits that Expired</h3>
+        <span className="text-[11.5px] text-slate-400">
+          notify → opt-in → invoice → paid → renewal deploys above
+        </span>
+      </div>
+      <RenewalNotificationsCard
+        jobs={jobs}
+        phaseABusy={phaseABusy}
+        historyTick={historyTick}
+        onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
+        onSendForRow={(row) => {
+          if (!row) return;
+          // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady.
+          // No Hampton fallback — a missing scenario must never send another
+          // customer's permit content.
+          const sc = row.scenario || renewScenarioById(row.scenarioId);
+          if (!sc) {
+            showToast(
+              "This permit isn't in the cache anymore — refresh Permits and try again"
+            );
+            return;
+          }
+          void runRenewNotice("email", sc);
+        }}
+        onResendFromHistory={(h) => {
+          if (!h) return;
+          const sc = renewScenarioById(h.scenarioId);
+          if (!sc) {
+            // Scenario aged out of the cache — never prefill Hampton's content.
+            showToast(
+              `Can't resend — permit ${h.permitNo || h.address || h.scenarioId || ""} is no longer in the cache. Open its pending row to send fresh.`
+            );
+            return;
+          }
+          void runRenewNotice("email", sc, {
+            // On-file only — never pre-fill last custom To
+            defaultTo: sc.realEmail || "",
+            resend: true,
+          });
+        }}
+      />
 
       <p className="text-center text-[12px] text-slate-400 leading-relaxed mt-1 mb-3 px-4">
         Nothing here marks itself done. An action only advances once we&apos;re{" "}

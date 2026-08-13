@@ -10,6 +10,7 @@
 // in openCasesView.js.
 
 import React, { memo, useState } from "react";
+import { InquirySurface } from "./permitsDeployExtras.jsx";
 
 /* Friendly status tones — lighter font, soft chips (mockup palette). */
 const STATUS_TONE = {
@@ -164,7 +165,7 @@ function TrackRail({ steps }) {
 }
 
 /** One agency rail block on a card. */
-function OpenCaseTrack({ track }) {
+function OpenCaseTrack({ track, inquiryHandlers }) {
   const coned = track.agency === "coned";
   return (
     <div
@@ -224,6 +225,29 @@ function OpenCaseTrack({ track }) {
       >
         {VERIFY_ICO[track.verification.state]} {track.verification.label}
       </p>
+
+      {/* What needs attention + inline Con Ed inquiry (Phase 2) */}
+      {track.needsAttention && track.attention ? (
+        <div
+          className="mt-1.5 mb-1 rounded-xl border border-red-100 bg-red-50/60 px-3 py-2"
+          data-testid="open-case-attention"
+        >
+          <div className="text-[11px] uppercase tracking-wider text-red-700 font-semibold mb-0.5">
+            ⚠ What needs attention
+          </div>
+          <p className="text-[13px] text-slate-700 leading-snug">{track.attention}</p>
+        </div>
+      ) : null}
+      {track.inquiry && inquiryHandlers ? (
+        <div className="mb-2">
+          <InquirySurface
+            track={track}
+            onSend={inquiryHandlers.send}
+            onConfirmSubmitted={inquiryHandlers.confirmSubmitted}
+            onNudge={inquiryHandlers.nudge}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -270,7 +294,7 @@ const BUCKET_CHIP = {
  * `manage` (optional render prop) supplies the per-track management surface
  * (to-dos, meter app, next-step actions) inside the expanded detail.
  */
-export const OpenCaseCard = memo(function OpenCaseCard({ card, onOpenJob, manage }) {
+export const OpenCaseCard = memo(function OpenCaseCard({ card, onOpenJob, manage, inquiryHandlers }) {
   const [open, setOpen] = useState(false);
   const [chip, chipTone] = BUCKET_CHIP[card.bucket] || BUCKET_CHIP.progress;
   return (
@@ -343,11 +367,14 @@ export const OpenCaseCard = memo(function OpenCaseCard({ card, onOpenJob, manage
             DOB {card.hasDob ? "✓" : "—"}
           </span>
         </div>
-
-        {card.tracks.map((t) => (
-          <OpenCaseTrack key={t.key} track={t} />
-        ))}
       </button>
+
+      {/* Tracks live OUTSIDE the toggle button — the inquiry composer is interactive */}
+      <div className="px-4 pb-3">
+        {card.tracks.map((t) => (
+          <OpenCaseTrack key={t.key} track={t} inquiryHandlers={inquiryHandlers} />
+        ))}
+      </div>
 
       {open ? (
         <div className="px-4 pb-4 pt-3 border-t border-slate-100" data-testid="open-case-detail">

@@ -67,8 +67,11 @@ export function getPermitAction(job, key) {
  *   'confirmed' — a real notification (agent/email/manual) landed
  */
 export function permitActionPhase(rec, { now = Date.now(), config } = {}) {
-  if (!rec || !rec.firedAt) return "ready";
+  if (!rec) return "ready";
+  // A confirmation always wins — even for actions confirmed without a fire
+  // (e.g. "account activated" manual-confirm, or work Israel did unprompted).
   if (rec.confirmedAt) return "confirmed";
+  if (!rec.firedAt) return "ready";
   const cfg = permitConfirmConfig(config);
   const fired = ts(rec.firedAt);
   if (fired && now - fired > cfg.flagAfterHours * HOUR_MS) return "flagged";
