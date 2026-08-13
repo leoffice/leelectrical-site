@@ -1,8 +1,13 @@
 // Permits — cross-job Con Edison + City/DOB open-case tracker.
 //
-// Surface: Deploy queue (titled New Case · Con Edison · address). Expand a row
-// for Open / Job / Edit + green Deploy → Deploying… → completed rows leave the
-// queue. Case progress sections + skills still to teach.
+// Redesign (Levi 2026-08-13, LE-permits-redesign-v2): two top tabs.
+//   OPEN CASES — one card per job with independent Con Ed / DOB rails, live
+//   status (friendly lighter type), compact step trail, verification
+//   indicator, always-visible last-update, >7-day stale flagging, buckets
+//   In Progress / Needs Attention / Completed + All/Needs filter.
+//   ACTIONS TO DEPLOY — Renewal Application + Deploy queue + Deploy history.
+// Confirmation model: lib/permitConfirm.js — nothing marks done on a
+// self-report; only an agent/email notification advances an action.
 //
 // Gating: the route is only mounted when tenant_config.modules.permits is on
 // (see tenantNav.js / App.jsx). The guard below is belt-and-suspenders.
@@ -108,6 +113,13 @@ import {
   formatSendHistoryWhen,
   listRenewSendHistory,
 } from "../lib/permitCache.js";
+import { buildOpenCaseCards, filterOpenCaseCards } from "../lib/openCasesView.js";
+import {
+  PermitTopTabs,
+  OpenCaseCounts,
+  OpenCaseFilter,
+  OpenCaseCard,
+} from "./permitsOpenCases.jsx";
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
   if (row.health === "blocked-by-us") return "bg-red-100 text-red-800";
@@ -524,124 +536,6 @@ function RenewEmailComposeSheet({ draft, saving, onClose, onSend }) {
     </div>
   );
 }
-
-/** Group board cases by job so Con Ed + DOB share one card when idle (Levi 2026-08-05). */
-function groupCasesByJob(sections) {
-  const map = new Map();
-  for (const sec of sections || []) {
-    for (const row of sec.cases || []) {
-      const id = String(row.jobId || row.key || "");
-      if (!id) continue;
-      if (!map.has(id)) {
-        map.set(id, {
-          jobId: row.jobId,
-          jobName: row.jobName,
-          address: row.address,
-          rows: [],
-        });
-      }
-      const g = map.get(id);
-      if (!g.jobName && row.jobName) g.jobName = row.jobName;
-      if (!g.address && row.address) g.address = row.address;
-      g.rows.push({ ...row, sectionLabel: sec.label });
-    }
-  }
-  return [...map.values()];
-}
-
-/** One job card with nested Con Ed / DOB (Permit) expanders. */
-const JobPermitGroupCard = memo(function JobPermitGroupCard({
-  group,
-  jobsById,
-  onOpen,
-  onMeterApplication,
-  onStepAction,
-  onCustomerTodo,
-  onUpdateTodoList,
-  updatingTodoId,
-  onRenewSchedule,
-}) {
-  const [open, setOpen] = useState(false);
-  const idleRef = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    if (idleRef.current) clearTimeout(idleRef.current);
-    idleRef.current = setTimeout(() => setOpen(false), 30_000);
-    return () => {
-      if (idleRef.current) clearTimeout(idleRef.current);
-    };
-  }, [open]);
-  const agencies = group.rows.map((r) => {
-    const a = String(r.agency || "");
-    if (a === "coned") return "Con Edison";
-    if (a === "dob" || a === "city") return "Permit / DOB";
-    return r.sectionLabel || a || "Permit";
-  });
-  const uniqueLabels = [...new Set(agencies)];
-  const needsAny = group.rows.some((r) => isActionNeeded(r));
-
-  return (
-    <div
-      className="card overflow-hidden"
-      data-testid="permit-job-group"
-      data-job-id={group.jobId || ""}
-    >
-      <button
-        type="button"
-        className="w-full text-left px-4 py-3 flex items-start gap-3"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-testid="permit-job-group-toggle"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <b className="truncate">{group.jobName || "Job"}</b>
-            {uniqueLabels.map((lab) => (
-              <span
-                key={lab}
-                className="text-[10px] font-bold uppercase tracking-wide text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded"
-              >
-                {lab}
-              </span>
-            ))}
-            {needsAny ? (
-              <span className="text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
-                Action
-              </span>
-            ) : null}
-          </div>
-          {group.address ? (
-            <div className="text-xs text-slate-500 truncate">{group.address}</div>
-          ) : null}
-          {!open ? (
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {group.rows.length} track{group.rows.length === 1 ? "" : "s"} · tap to expand
-            </div>
-          ) : null}
-        </div>
-        <span className="text-slate-400 text-xs shrink-0">{open ? "▾" : "▸"}</span>
-      </button>
-      {open ? (
-        <div className="px-2 pb-2 space-y-2 border-t border-slate-100" data-testid="permit-job-group-body">
-          {group.rows.map((row) => (
-            <CaseRow
-              key={row.key}
-              row={row}
-              job={jobsById.get(row.jobId)}
-              onOpen={onOpen}
-              onMeterApplication={onMeterApplication}
-              onStepAction={onStepAction}
-              onCustomerTodo={onCustomerTodo}
-              onUpdateTodoList={onUpdateTodoList}
-              updatingTodo={updatingTodoId === row.jobId}
-              onRenewSchedule={onRenewSchedule}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-});
 
 function CaseStepChips({ steps = [], onStepTap }) {
   if (!steps.length) return null;
@@ -1423,6 +1317,10 @@ export default function Permits() {
   const [renewCompose, setRenewCompose] = useState(null);
   const config = useTenantConfig();
   const nav = useNavigate();
+  // Two top tabs (Levi 2026-08-13 redesign): Open Cases · Actions to Deploy.
+  // Both panels stay mounted (hidden attr) so switching is instant + poll state lives.
+  const [activeTab, setActiveTab] = useState("cases");
+  const [casesFilter, setCasesFilter] = useState("all");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [caseRuns, setCaseRuns] = useState([]);
@@ -1672,7 +1570,7 @@ export default function Permits() {
     [caseRuns, jobs]
   );
 
-  // Stable callbacks so memoized CaseRow / JobPermitGroupCard skip re-render on poll (snappy)
+  // Stable callbacks so memoized CaseRow / OpenCaseCard skip re-render on poll (snappy)
   // Must stay above any early return (Rules of Hooks).
   const [updatingTodoId, setUpdatingTodoId] = useState(null);
 
@@ -2944,8 +2842,7 @@ export default function Permits() {
     setTimeout(() => refreshRuns(), 600);
   };
 
-  const { counts, actionNeeded, sections } = board;
-  const hasAny = counts.total > 0;
+  const { counts } = board;
   // Levi 2026-08-05/06: clear count of applications ready to upload (+ expected batch).
   const appsReadyTotal = useMemo(() => {
     let n = 0;
@@ -2953,8 +2850,47 @@ export default function Permits() {
     return n;
   }, [jobs]);
 
-  // Precompute once per board change — expand/collapse must not regroup (snappy)
-  const jobGroups = useMemo(() => groupCasesByJob(sections), [sections]);
+  // Open Cases cards — derived once per board/caseRuns change (snappy: expand,
+  // filter, and tab switches never regroup).
+  const openCases = useMemo(
+    () => buildOpenCaseCards({ board, caseRuns }),
+    [board, caseRuns]
+  );
+  const visibleCaseCards = useMemo(
+    () => filterOpenCaseCards(openCases.cards, casesFilter),
+    [openCases, casesFilter]
+  );
+  const deployAlert = useMemo(
+    () => queueItems.some((i) => i.deployError || i.status === "failed" || i.status === "need_info"),
+    [queueItems]
+  );
+
+  /** Per-track management surface inside an expanded Open Case card. */
+  const renderTrackManage = useCallback(
+    (t) => (
+      <CaseRow
+        row={t.row}
+        job={jobsById.get(t.row.jobId)}
+        onOpen={open}
+        onMeterApplication={handleMeterApplication}
+        onStepAction={handleStepAction}
+        onCustomerTodo={handleCustomerTodo}
+        onUpdateTodoList={handleUpdateTodoList}
+        updatingTodo={updatingTodoId === t.row.jobId}
+        onRenewSchedule={handleRenewSchedule}
+      />
+    ),
+    [
+      jobsById,
+      open,
+      handleMeterApplication,
+      handleStepAction,
+      handleCustomerTodo,
+      handleUpdateTodoList,
+      updatingTodoId,
+      handleRenewSchedule,
+    ]
+  );
 
   const toggleQueueRow = useCallback((id) => {
     setExpandedIds((m) => ({ ...m, [id]: !m[id] }));
@@ -2983,6 +2919,49 @@ export default function Permits() {
         ) : null}
       </div>
 
+      <PermitTopTabs
+        active={activeTab}
+        onChange={setActiveTab}
+        casesCount={openCases.counts.open}
+        deployCount={queueItems.length}
+        deployAlert={deployAlert}
+      />
+
+      {/* ============ OPEN CASES ============ */}
+      <section hidden={activeTab !== "cases"} data-testid="permits-panel-cases">
+        <OpenCaseCounts counts={openCases.counts} />
+        <OpenCaseFilter
+          filter={casesFilter}
+          onFilter={setCasesFilter}
+          needsCount={openCases.counts.needs}
+        />
+        {visibleCaseCards.length ? (
+          <div data-testid="open-cases-list">
+            {visibleCaseCards.map((card) => (
+              <OpenCaseCard
+                key={String(card.jobId)}
+                card={card}
+                onOpenJob={open}
+                manage={renderTrackManage}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="card px-4 py-10 text-center text-sm text-slate-400 mb-3" data-testid="open-cases-empty">
+            <span className="block text-3xl mb-2">📄</span>
+            {casesFilter === "needs"
+              ? "Nothing needs attention right now."
+              : "No open permit cases yet. Start a case from a job's Paperwork — it lands in Actions to Deploy."}
+          </div>
+        )}
+        <p className="text-center text-[12px] text-slate-400 leading-relaxed mt-4 mb-2 px-4">
+          Progress on each card is live — it reflects every update anywhere in the app
+          across the DOB and Con&nbsp;Edison tracks. A job can have just DOB, just Con&nbsp;Ed, or both.
+        </p>
+      </section>
+
+      {/* ============ ACTIONS TO DEPLOY ============ */}
+      <section hidden={activeTab !== "deploy"} data-testid="permits-panel-deploy">
       {/* Renewal Application — pending send notices only; paid → Deploy queue */}
       <RenewalNotificationsCard
         jobs={jobs}
@@ -3216,89 +3195,12 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Count chips */}
-      {hasAny ? (
-        <div className="flex flex-wrap gap-2 mb-3 px-1 text-[11px]">
-          {counts.actionNeeded ? (
-            <span className="pill bg-red-100 text-red-800">⚠ {counts.actionNeeded} need action</span>
-          ) : null}
-          {counts.scheduled ? (
-            <span className="pill bg-brand-soft text-brand">📅 {counts.scheduled} scheduled</span>
-          ) : null}
-          {counts.open ? <span className="pill bg-violet-100 text-violet-900">{counts.open} open</span> : null}
-          {counts.passed ? <span className="pill bg-emerald-100 text-emerald-800">✓ {counts.passed} passed</span> : null}
-        </div>
-      ) : null}
-
-      {/* Open cases — combined cards (Con Ed + DOB + customer to-dos). Skills list is at bottom. */}
-      {actionNeeded.length ? (
-        <CollapsibleSection
-          testId="permit-action-strip"
-          title={`Action needed (${actionNeeded.length})`}
-          defaultOpen={true}
-          autoCollapseMs={30_000}
-        >
-          <div className="space-y-2">
-            {actionNeeded.map((row) => (
-              <CaseRow
-                key={`an:${row.key}`}
-                row={row}
-                job={jobsById.get(row.jobId)}
-                onOpen={open}
-                onMeterApplication={handleMeterApplication}
-                onStepAction={handleStepAction}
-                onCustomerTodo={handleCustomerTodo}
-                onUpdateTodoList={handleUpdateTodoList}
-                updatingTodo={updatingTodoId === row.jobId}
-                onRenewSchedule={handleRenewSchedule}
-              />
-            ))}
-          </div>
-        </CollapsibleSection>
-      ) : null}
-
-      {/* Jobs combined (Con Ed + DOB on one card when idle) — collapsible, start collapsed. */}
-      {jobGroups.length ? (
-          <CollapsibleSection
-            testId="permit-section-jobs"
-            title={`Jobs (${jobGroups.length})`}
-            defaultOpen={false}
-            autoCollapseMs={30_000}
-          >
-            <div className="space-y-2" data-testid="permit-job-groups">
-              {jobGroups.map((g) => (
-                <JobPermitGroupCard
-                  key={String(g.jobId || g.jobName)}
-                  group={g}
-                  jobsById={jobsById}
-                  onOpen={open}
-                  onMeterApplication={handleMeterApplication}
-                  onStepAction={handleStepAction}
-                  onCustomerTodo={handleCustomerTodo}
-                  onUpdateTodoList={handleUpdateTodoList}
-                  updatingTodoId={updatingTodoId}
-                  onRenewSchedule={handleRenewSchedule}
-                />
-              ))}
-            </div>
-          </CollapsibleSection>
-      ) : null}
-
-      {/* Empty agency labels still listed for empty tenants */}
-      {sections.every((s) => !(s.cases || []).length) && sections.length ? (
-        <div className="card px-4 py-6 text-center text-sm text-slate-400 mb-4">
-          No open Con Edison or DOB cases yet.
-        </div>
-      ) : null}
-
-      {!hasAny && !sections.length && !queueItems.length ? (
-        <div className="card px-4 py-10 text-center text-sm text-slate-400">
-          <span className="block text-3xl mb-2">📄</span>
-          No permit cases yet.
-          <br />
-          Start a case from a job&apos;s Paperwork — it lands in the Deploy queue here.
-        </div>
-      ) : null}
+      <p className="text-center text-[12px] text-slate-400 leading-relaxed mt-1 mb-3 px-4">
+        Nothing here marks itself done. An action only advances once we&apos;re{" "}
+        <b className="text-slate-500">notified it was actually performed</b> at the agency —
+        by the browser agent, Israel, or an email confirmation.
+      </p>
+      </section>
 
       {/* Skills list — bottom only, collapsible (Levi 2026-08-04 / 2026-08-05) */}
       <CollapsibleSection

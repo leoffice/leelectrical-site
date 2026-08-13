@@ -75,18 +75,21 @@ describe("Permits tab gating", () => {
 });
 
 describe("Permits tab renders derived Con Ed cases", () => {
-  it("Permits-enabled tenant sees a Con Ed case row derived from an applied email", async () => {
+  it("Permits-enabled tenant sees a Con Ed case card derived from an applied email", async () => {
     mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
     renderAppAsTenant("#/permits");
-    // Jobs group starts collapsed — expand to see Con Ed case rows (Levi 2026-08-05).
-    const jobsSec = await screen.findByTestId("permit-section-jobs");
-    expect(jobsSec).toBeInTheDocument();
-    jobsSec.querySelector("button")?.click();
-    const jobGroup = await screen.findByTestId("permit-job-group");
-    jobGroup.querySelector('[data-testid="permit-job-group-toggle"]')?.click();
-    // Case row shows the customer and the MC case number.
+    // Redesign (Levi 2026-08-13): Open Cases tab is the default — the derived
+    // case card is visible immediately with customer + MC case number.
+    const card = await screen.findByTestId("open-case-card");
+    expect(card).toBeInTheDocument();
     expect(await screen.findByText("Winthrop Owner")).toBeInTheDocument();
     expect(await screen.findByText("MC-910413")).toBeInTheDocument();
+    // Two-rail card carries the live Con Ed status + a verification indicator.
+    expect(card.querySelector('[data-testid="open-case-track"]')).toBeTruthy();
+    expect(card.querySelector('[data-testid="open-case-verify"]')).toBeTruthy();
+    // Both top tabs render with counts.
+    expect(screen.getByTestId("permits-tab-cases")).toBeInTheDocument();
+    expect(screen.getByTestId("permits-tab-deploy")).toBeInTheDocument();
     // Functionalities lock-in checklist is under Skills (collapsed by default).
     const skillsSec = await screen.findByTestId("permits-skills-bottom");
     skillsSec.querySelector("button")?.click();

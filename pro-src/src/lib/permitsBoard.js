@@ -160,6 +160,7 @@ function rowFromConedPermit(job, permit) {
     nextAction: permit.nextAction || "",
     nextActionDate: permit.nextActionDate || "",
     updatedAt: permit.updatedAt || "",
+    events: Array.isArray(permit.events) ? permit.events : [],
     source: "coned",
   };
   return withCaseRecommendations(row, job);
@@ -182,6 +183,7 @@ function rowFromConedPaperwork(job, coned) {
     nextAction: coned.nextAction || "",
     nextActionDate: coned.nextActionDate || "",
     updatedAt: "",
+    events: [],
     source: "coned",
   };
   return withCaseRecommendations(row, job);
@@ -223,6 +225,7 @@ function rowFromCityPermit(job, permit) {
     nextAction: permit.nextAction || "",
     nextActionDate: permit.nextActionDate || "",
     updatedAt: permit.updatedAt || "",
+    events: Array.isArray(permit.events) ? permit.events : [],
     source: "city",
   };
 }
