@@ -69,4 +69,20 @@ describe("stale overlay snapshots never clobber saved edits", () => {
     expect(merged.find((j) => j.id === "qbo-999999").customer).toBe("Fresh Invoice Customer");
     expect(merged.find((j) => j.id === "local-1").customer).toBe("Draft");
   });
+
+  it("mergeJobsStaleGuard keeps numbered estimate missing from incoming snapshot", () => {
+    const prev = [
+      {
+        id: "local-est",
+        customer: "The Perfect Management",
+        estimateNo: "201974",
+        amount: "$9,950",
+        // no _new — still must stay (Levi 2026-08-13)
+      },
+    ];
+    const incoming = [{ id: "qbo-1", customer: "Other", invoiceNo: "1" }];
+    const merged = mergeJobsStaleGuard(prev, incoming);
+    expect(merged.map((j) => j.id).sort()).toEqual(["local-est", "qbo-1"]);
+    expect(merged.find((j) => j.id === "local-est").estimateNo).toBe("201974");
+  });
 });

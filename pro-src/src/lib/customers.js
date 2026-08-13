@@ -494,21 +494,48 @@ export function jobsForCustomerKey(jobs, key, hints, qboIndex) {
   }
   if (key.startsWith("q:")) {
     const qid = key.slice(2);
+    // Jobs already stamped with this QuickBooks customer id.
     const byId = active.filter((j) => String(j.qboCustomerId || "").trim() === qid);
-    if (byId.length) return byId;
-    const h = hints || {};
-    const names = [h.name, h.businessName, h.personName].filter(Boolean);
-    for (const nm of names) {
-      const hit = active.filter(
-        (j) =>
-          !j.clientGroup &&
-          (customerNameMatches(j, nm) ||
-            customerNameMatches({ customer: j.personName }, nm) ||
-            customerNameMatches({ customer: j.businessName }, nm))
-      );
-      if (hit.length) return hit;
+    // Also fold name-matched local jobs that never got qboCustomerId stamped
+    // (estimate generator / calendar shells). Otherwise the customer card
+    // (route q:10) hides a just-created estimate that only has a display name
+    // — Levi 2026-08-13 Perfect Management / 679 Knickerbocker #201974.
+    const names = new Set();
+    for (const j of byId) {
+      for (const f of [j.customer, j.businessName, j.personName]) {
+        const n = normalizeCustomer(f);
+        if (n) names.add(n);
+      }
     }
-    return [];
+    const h = hints || {};
+    for (const f of [h.name, h.businessName, h.personName]) {
+      const n = normalizeCustomer(f);
+      if (n) names.add(n);
+    }
+    const nameHits =
+      names.size === 0
+        ? []
+        : active.filter((j) => {
+            if (!j || j.clientGroup) return false;
+            const jq = String(j.qboCustomerId || "").trim();
+            // Already in byId, or belongs to a different QBO customer.
+            if (jq) return false;
+            return [...names].some(
+              (nm) =>
+                customerNameMatches(j, nm) ||
+                customerNameMatches({ customer: j.personName }, nm) ||
+                customerNameMatches({ customer: j.businessName }, nm)
+            );
+          });
+    if (!byId.length && !nameHits.length) return [];
+    const seen = new Set();
+    const out = [];
+    for (const j of [...byId, ...nameHits]) {
+      if (!j?.id || seen.has(j.id)) continue;
+      seen.add(j.id);
+      out.push(j);
+    }
+    return out;
   }
   if (key.startsWith("c:")) {
     const name = key.slice(2);

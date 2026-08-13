@@ -96,6 +96,10 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
       personName: prefill.personName || prefill._estimator?.answers?.personName || "",
       email: prefill.email || prefill._estimator?.answers?.email || "",
       phone: prefill.phone || prefill._estimator?.answers?.phone || "",
+      qboCustomerId:
+        prefill.qboCustomerId ||
+        prefill._estimator?.answers?.qboCustomerId ||
+        "",
       serviceAddress:
         prefill.serviceAddress ||
         prefill.address ||
@@ -233,6 +237,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         builtAt: Date.now(),
       };
       // Flags so list UI can mark generator jobs + estimate stage is real
+      const qboCustId = String(answers.qboCustomerId || prefill.qboCustomerId || "").trim();
       const generatorFlags = {
         _estimator: estimatorPayload,
         _fromEstimateGenerator: true,
@@ -244,6 +249,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         serviceAddress: answers.serviceAddress || "",
         address: answers.serviceAddress || "",
         notes: answers.notes || "",
+        ...(qboCustId ? { qboCustomerId: qboCustId } : {}),
       };
 
       // Re-run generator on an existing job (Edit with estimate generator)
@@ -338,6 +344,9 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                 personName: c.personName || "",
                 email: c.email || "",
                 phone: c.phone || "",
+                // Keep under the same QuickBooks customer card after save
+                // (empty id was dropping Perfect Management #201974 off q:10).
+                qboCustomerId: String(c.id || c.qboCustomerId || "").trim(),
                 billingAddress: c.billingAddress || c.addr || "",
                 serviceAddress: answers.serviceAddress || c.serviceAddress || c.addr || "",
               });

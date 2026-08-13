@@ -187,6 +187,8 @@ export function defaultAnswers(partial = {}) {
     personName: "",
     email: "",
     phone: "",
+    /** Stamp when customer is picked from search so the job stays under q:<id>. */
+    qboCustomerId: "",
     serviceAddress: "",
     billingAddress: "",
     mainAmps: 200,

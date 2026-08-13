@@ -126,12 +126,13 @@ export function reconcileStaleDocOverlay(base, ov) {
 }
 
 /**
- * Jobs that must not vanish from soft-delete / mock cleanup (Levi 2026-08-11).
- * Covers: any payment entered, confirmed invoice, and paid city-permit renews
- * (LE-2702 · 40 Hampton — money landed after leftover cleanup).
+ * Jobs that must not vanish from soft-delete / mock cleanup / stale refresh
+ * (Levi 2026-08-11; tightened 2026-08-13).
+ * Covers: any payment, any numbered invoice/estimate, confirmed local docs,
+ * emailed face-lock, and paid city-permit renews.
  * Keep merge.js free of permitRenewal imports — mirror money + renew signals.
  */
-function isMoneyOrInvoiceKeepVisible(o) {
+export function isMoneyOrInvoiceKeepVisible(o) {
   if (!o || typeof o !== "object") return false;
   // Any real payment on the job
   const pays = Array.isArray(o.payments) ? o.payments : [];
@@ -141,13 +142,28 @@ function isMoneyOrInvoiceKeepVisible(o) {
     if (Number.isFinite(n) && n > 0.009) return true;
   }
   if (o.paid) return true;
-  // Confirmed / numbered invoice or estimate — do not vanish after entry
+  // Numbered invoice or estimate — always keep (never drop money docs)
   const inv = String(o.invoiceNo || "").trim();
   const est = String(o.estimateNo || "").trim();
-  if (inv && (o._invoiceConfirmed || o._docEmailed || o.invoiceEmailedAt || o.paid)) {
+  if (inv) return true;
+  if (est) return true;
+  // Confirmed / emailed local docs even before a number is assigned
+  if (
+    o._invoiceConfirmed ||
+    o._estimateConfirmed ||
+    o._docEmailed ||
+    o.invoiceEmailedAt ||
+    o.estimateEmailedAt
+  ) {
     return true;
   }
-  if (est && (o._estimateConfirmed || o._docEmailed || o.estimateEmailedAt)) {
+  // Draft lines on the job (generator / edit before number stamp) — still money
+  const hasLines = (arr) =>
+    Array.isArray(arr) &&
+    arr.some((line) => line && (line.itemName || line.description || line.amount != null || line.unitPrice != null));
+  if (hasLines(o.estimateLines) || hasLines(o.invoiceLines)) return true;
+  // Face-lock after send — card must not vanish
+  if (o.lastSentDoc && (o.lastSentDoc.docNo || o.lastSentDoc.amount != null)) {
     return true;
   }
   // Paid / queued city-permit renew
@@ -255,7 +271,10 @@ export function mergeJobs(baseJobs, ov) {
   return out;
 }
 
-/** When state.ov is stale (blob lag), keep local jobs with saved edits but still admit new QBO jobs. */
+/** When state.ov is stale (blob lag), keep local jobs with saved edits but still admit new QBO jobs.
+ *  Also keeps any money/doc job (_new or not) so a mid-refresh never drops estimates,
+ *  invoices, or payments that the incoming snapshot has not caught up with yet
+ *  (Levi 2026-08-13 — Perfect Management estimate vanished on customer return). */
 export function mergeJobsStaleGuard(prevJobs, incomingJobs) {
   const prev = prevJobs || [];
   const incoming = incomingJobs || [];
@@ -263,7 +282,8 @@ export function mergeJobsStaleGuard(prevJobs, incomingJobs) {
   const incomingIds = new Set(incoming.map((j) => j && j.id).filter(Boolean));
   const merged = incoming.map((j) => (j && prevById[j.id]) || j);
   for (const j of prev) {
-    if (j && j.id && !incomingIds.has(j.id) && j._new) merged.push(j);
+    if (!j || !j.id || incomingIds.has(j.id)) continue;
+    if (j._new || isMoneyOrInvoiceKeepVisible(j)) merged.push(j);
   }
   return merged;
 }

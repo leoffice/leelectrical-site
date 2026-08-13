@@ -214,6 +214,23 @@ describe("unknownCustomers (#56 not-in-app filter)", () => {
     expect(jobsForCustomerKey(jobs, "q:1432", { name: "Arthur koptiv" }).map((j) => j.id)).toEqual(["qbo-1"]);
   });
 
+  it("jobsForCustomerKey q: also folds name-matched local jobs missing qboCustomerId (Perfect #201974)", () => {
+    const jobs = [
+      { id: "qbo-251761", customer: "The Perfect Management", qboCustomerId: "10", invoiceNo: "251761" },
+      {
+        id: "local-est",
+        customer: "The Perfect Management",
+        estimateNo: "201974",
+        amount: "$9,950",
+        _estimateConfirmed: true,
+        // empty qboCustomerId — old generator bug
+      },
+      { id: "other", customer: "Other Co", qboCustomerId: "99", invoiceNo: "1" },
+    ];
+    const ids = jobsForCustomerKey(jobs, "q:10").map((j) => j.id).sort();
+    expect(ids).toEqual(["local-est", "qbo-251761"]);
+  });
+
   it("handles empty / non-array input", () => {
     expect(unknownCustomers(null, jobs)).toEqual([]);
     expect(unknownCustomers([{ name: "New" }], [])).toEqual([{ name: "New" }]);
