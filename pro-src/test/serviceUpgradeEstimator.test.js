@@ -51,7 +51,8 @@ describe("serviceUpgradeEstimator", () => {
     expect(r.lines.some((l) => /Service Upgrade/i.test(l.itemName))).toBe(true);
     expect(r.lines[0].description).toMatch(/The following is included in the upgrade/i);
     expect(r.lines[0].description).toMatch(/4 meters\./i);
-    expect(r.lines[0].description).toMatch(/Installation of 1 m,/i);
+    expect(r.lines[0].description).toMatch(/Installation of 1 Meter,/i);
+    expect(r.lines[0].description).toMatch(/Installation of 1 panel,/i);
     expect(r.lines[0].description).toMatch(
       /Included in this price is labor and materials for the above description only/i
     );
@@ -113,7 +114,8 @@ describe("serviceUpgradeEstimator", () => {
     // Scope describes work — no internal $ math (white-label process)
     expect(main.description).not.toMatch(/\$\d/);
     expect(main.description).toMatch(/end-line box to metering/);
-    expect(main.description).toMatch(/Installation of 1 m,/);
+    expect(main.description).toMatch(/Installation of 1 Meter,/);
+    expect(main.description).toMatch(/Installation of 1 panel,/);
     expect(main.description).toMatch(/residential account|commercial space|PLP \/ common/i);
     // No NOT INCLUDED dump on main package for conduit/dig (those live on their own lines if priced)
     expect(main.description).not.toMatch(/NOT INCLUDED:/i);

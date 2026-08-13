@@ -264,17 +264,22 @@ export function buildScopeBullets(answers, fees) {
     const s = sizeById(m.sizeId);
     const role = roleLabel(m.role);
     const feet = feetForMeter(m, a, f);
-    // Levi: installation of 1 m, {size}, and 1 panel, {amps} main breaker for the {role}
-    const panelBit =
-      m.includePanel !== false
-        ? `and 1 panel, ${s.amps} A main breaker`
-        : "without a new panel";
-    let line = `Installation of 1 m, ${s.label}, ${panelBit} for the ${role}`;
-    // Only call out long meter-to-panel runs (over 3 ft) — additional conduit, not a free 1 ft PLP line
+    // Levi 2026-08-13: two lines — meter, then panel (when included)
+    // e.g. Installation of 1 Meter, 200A single-phase for the commercial space.
+    //      Installation of 1 panel, 200A main breaker for the commercial space.
+    let meterLine = `Installation of 1 Meter, ${s.amps}A ${s.phase === 3 ? "three-phase" : "single-phase"} for the ${role}.`;
     if (feet > 3) {
-      line += `; additional conduit ${feet} ft meter-to-panel`;
+      meterLine = meterLine.replace(
+        /\.$/,
+        `; additional conduit ${feet} ft meter-to-panel.`
+      );
     }
-    bullets.push(line);
+    bullets.push(meterLine);
+    if (m.includePanel !== false) {
+      bullets.push(
+        `Installation of 1 panel, ${s.amps}A main breaker for the ${role}.`
+      );
+    }
   });
 
   // PLP equipment run: only when over 3 ft (Levi — drop the 1 ft noise)
