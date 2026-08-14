@@ -35,6 +35,7 @@ import {
   hydrateEstimateGeneratorFeesFromCloud,
   useAppSettings,
 } from "../lib/appSettings.js";
+import { buildCheckPdfBlob, BLZ_CHECK } from "../lib/checkPrintPdf.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import {
   applyCompanyLogoToActiveConfig,
@@ -225,6 +226,7 @@ export default function Settings() {
     connections: false,
     company: false,
     estimateGen: false,
+    checkPrint: false,
     features: false,
     special: false,
     assistant: false,
@@ -235,6 +237,15 @@ export default function Settings() {
     ...DEFAULT_FEES,
     ...getEstimateGeneratorFees(),
   }));
+  // Check Print (BLZ flagship only) — payee / amount / date entered by Levi.
+  const [chk, setChk] = useState(() => ({
+    payee: "",
+    amount: "",
+    date: "",
+    checkNo: String(BLZ_CHECK.startCheckNo),
+    memo: "",
+  }));
+
   // Feature subcategories start collapsed.
   const [openFeature, setOpenFeature] = useState(() =>
     Object.fromEntries(FEATURE_GROUPS.map((g) => [g.id, false]))
@@ -964,6 +975,107 @@ export default function Settings() {
           Save Estimate Generator prices
         </button>
       </MenuSection>
+
+      {/* ── Check Print (BLZ flagship only) ── */}
+      {internal ? (
+        <MenuSection
+          id="checkPrint"
+          title="Check Print"
+          summary="Print a BLZ Electric business check (front) — enter amount, payee, date"
+          open={openMenu.checkPrint}
+          onToggle={() => toggleMenu("checkPrint")}
+        >
+          <p className="text-xs text-slate-500 font-semibold mb-3">
+            Generates a print-ready PDF of the check front on BLZ&apos;s own Chase
+            account ({BLZ_CHECK.bank}) with the E-13B MICR line. The written amount
+            is spelled automatically. The signature line is left blank — print it and
+            sign by hand.
+          </p>
+          <Fld label="Pay to the order of">
+            <input
+              className={inputCls}
+              value={chk.payee}
+              data-testid="check-payee"
+              placeholder="Vendor / payee name"
+              onChange={(e) => setChk((c) => ({ ...c, payee: e.target.value }))}
+            />
+          </Fld>
+          <div className="grid grid-cols-2 gap-2">
+            <Fld label="Amount ($)">
+              <input
+                className={inputCls}
+                inputMode="decimal"
+                value={chk.amount}
+                data-testid="check-amount"
+                placeholder="397.50"
+                onChange={(e) => setChk((c) => ({ ...c, amount: e.target.value }))}
+              />
+            </Fld>
+            <Fld label="Date">
+              <input
+                className={inputCls}
+                value={chk.date}
+                data-testid="check-date"
+                placeholder="MM/DD/YYYY"
+                onChange={(e) => setChk((c) => ({ ...c, date: e.target.value }))}
+              />
+            </Fld>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Fld label="Check #">
+              <input
+                className={inputCls}
+                inputMode="numeric"
+                value={chk.checkNo}
+                data-testid="check-number"
+                onChange={(e) => setChk((c) => ({ ...c, checkNo: e.target.value }))}
+              />
+            </Fld>
+            <Fld label="Memo (optional)">
+              <input
+                className={inputCls}
+                value={chk.memo}
+                data-testid="check-memo"
+                placeholder="Invoice #"
+                onChange={(e) => setChk((c) => ({ ...c, memo: e.target.value }))}
+              />
+            </Fld>
+          </div>
+          <button
+            type="button"
+            className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full mt-1"
+            data-testid="check-generate"
+            onClick={() => {
+              const amt = Number(chk.amount);
+              if (!chk.payee.trim()) {
+                showToast?.("Enter a payee for the check");
+                return;
+              }
+              if (!Number.isFinite(amt) || amt <= 0) {
+                showToast?.("Enter a valid check amount");
+                return;
+              }
+              try {
+                const blob = buildCheckPdfBlob({
+                  payee: chk.payee.trim(),
+                  amount: amt,
+                  date: chk.date.trim(),
+                  checkNo: chk.checkNo.trim() || String(BLZ_CHECK.startCheckNo),
+                  memo: chk.memo.trim(),
+                });
+                const fname = `BLZ_Check_${(chk.checkNo || "").trim() || BLZ_CHECK.startCheckNo}.pdf`;
+                openPdfForNativeView({ blob, filename: fname });
+                showToast?.("Check PDF generated — print and sign by hand");
+              } catch (e) {
+                showToast?.("Could not generate check: " + String(e?.message || e));
+              }
+            }}
+          >
+            Generate check PDF
+          </button>
+        </MenuSection>
+      ) : null}
+
 
       {/* ── Company profile ── */}
       <MenuSection
