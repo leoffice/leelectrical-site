@@ -40,7 +40,10 @@ import {
 } from "../lib/appSettings.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import { buildCheckPdfBlob } from "../lib/checkPrintPdf.js";
-import { openPdfForNativeView } from "../lib/pdfOpen.js";
+// Same proven path as letterhead / doc builder PDFs. Avoid openPdfForNativeView
+// here — a prior Settings chunk called it as a bare global and toast'd
+// "openPdfForNativeView is not defined".
+import { downloadPdfBlob } from "../lib/pdfOpen.js";
 import {
   applyCompanyLogoToActiveConfig,
   applyCompanyProfileToActiveConfig,
@@ -1133,7 +1136,7 @@ export default function Settings() {
                         config: selAcct,
                       });
                       const safe = String(selAcct.label || selAcct.name || "Check").replace(/[^\w.-]+/g, "_");
-                      openPdfForNativeView({ blob, filename: safe + "_" + checkNo + ".pdf" });
+                      downloadPdfBlob(blob, safe + "_" + checkNo + ".pdf");
                       showToast?.("Check PDF generated — print and sign by hand");
                     } catch (e) {
                       showToast?.("Could not generate check: " + String(e?.message || e));
