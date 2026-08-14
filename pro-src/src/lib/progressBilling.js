@@ -105,20 +105,33 @@ export function progressBillByAmount(estimateLines, amountDue, contractTotal) {
   return progressBillLines(estimateLines, pct);
 }
 
-/** Apply progress percent to existing invoice lines (preserve item names). */
+/**
+ * Match invoice lines to contract/estimate template by item name when possible
+ * so a deleted estimate line is not used as the rate source for a different row.
+ */
+function templateLineFor(ln, i, template) {
+  const key = lineItemKey(ln);
+  if (key && template?.length) {
+    const hit = template.find((t) => lineItemKey(t) === key);
+    if (hit) return hit;
+  }
+  return template?.[i] || template?.[0] || ln;
+}
+
+/** Apply progress percent to existing invoice lines (preserve item names / count). */
 export function applyProgressPctToLines(lines, contractLines, progressPct) {
   const template = contractLines?.length ? contractLines : lines;
-  const billed = progressBillLines(template, progressPct);
+  // Scale each remaining invoice line only — never re-insert deleted estimate rows.
   return (lines || []).map((ln, i) => {
-    const ref = billed[i] || billed[0] || ln;
-    // Keep contractQty so 75%→100% never compounds on re-open / re-edit (Levi).
+    const base = templateLineFor(ln, i, template);
+    const scaled = progressBillLines([base], progressPct)[0] || ln;
     return {
       ...ln,
-      qty: ref.qty,
-      unitPrice: ref.unitPrice,
-      amount: ref.amount,
-      progressBilling: ref.progressBilling,
-      contractQty: ref.contractQty ?? ln.contractQty,
+      qty: scaled.qty,
+      unitPrice: scaled.unitPrice,
+      amount: scaled.amount,
+      progressBilling: scaled.progressBilling,
+      contractQty: scaled.contractQty ?? ln.contractQty,
     };
   });
 }
@@ -126,8 +139,14 @@ export function applyProgressPctToLines(lines, contractLines, progressPct) {
 /** Apply a total due amount across lines (QBO fractional qty). */
 export function applyDueAmountToLines(lines, contractLines, amountDue, contractTotal) {
   const template = contractLines?.length ? contractLines : lines;
-  const billed = progressBillByAmount(template, amountDue, contractTotal);
-  return (lines || []).map((ln, i) => {
+  const rows = lines || [];
+  if (!rows.length) return rows;
+  // Proportionally bill only the lines still on the invoice.
+  const orderedTemplate = rows.map((ln, i) => templateLineFor(ln, i, template));
+  const subContract =
+    contractTotalFromEstimate(orderedTemplate) || parseAmount(contractTotal) || 0;
+  const billed = progressBillByAmount(orderedTemplate, amountDue, subContract || contractTotal);
+  return rows.map((ln, i) => {
     const ref = billed[i] || billed[0] || ln;
     return {
       ...ln,
@@ -140,20 +159,62 @@ export function applyDueAmountToLines(lines, contractLines, amountDue, contractT
   });
 }
 
+/** Stable item key for matching invoice lines to estimate template lines. */
+function lineItemKey(ln) {
+  return String(ln?.itemName || "")
+    .trim()
+    .toLowerCase();
+}
+
 /**
  * Coerce invoice lines into QBO progress style: full rate × fractional qty.
  * Fixes imports where unitPrice was the partial bill and qty was 1 (reads as 100% of a small rate).
+ *
+ * CRITICAL (Levi 2026-08-14 — Izzy invoice): never re-expand from the full
+ * estimate when the invoice deliberately has a subset of estimate lines
+ * (e.g. user deleted "Removal & disposal"). Deleted lines must stay gone.
  */
 export function normalizeProgressInvoiceLines(lines, contractTotal, estimateLines) {
   const contract = parseAmount(contractTotal) || 0;
   const rows = (lines || []).map((ln) => ({ ...emptyLine(), ...ln }));
   if (!rows.length) return rows;
 
-  // Prefer estimate template when billed total is a partial of the contract.
+  // Prefer estimate template when billed total is a partial of the contract —
+  // but only rebuild from estimate lines the invoice still carries.
   if (estimateLines?.length && contract > 0) {
     const billed = linesTotal(rows);
     if (billed > 0 && billed < contract * 0.999) {
-      return progressBillByAmount(estimateLines, billed, contract);
+      const invKeys = rows.map(lineItemKey);
+      const estKeys = estimateLines.map(lineItemKey);
+      const invIsSubsetOfEstimate =
+        invKeys.length > 0 &&
+        invKeys.every((k) => k && estKeys.includes(k)) &&
+        invKeys.length < estKeys.length;
+      const invMatchesEstimate =
+        invKeys.length === estKeys.length &&
+        invKeys.length > 0 &&
+        invKeys.every((k, i) => k && k === estKeys[i]);
+
+      if (invIsSubsetOfEstimate) {
+        // Keep invoice line set; pull rates from matching estimate lines only.
+        const byKey = new Map();
+        for (const el of estimateLines) {
+          const k = lineItemKey(el);
+          if (k && !byKey.has(k)) byKey.set(k, el);
+        }
+        const template = invKeys.map((k) => byKey.get(k)).filter(Boolean);
+        if (template.length === rows.length) {
+          const subContract = contractTotalFromEstimate(template) || contract;
+          return progressBillByAmount(template, billed, subContract);
+        }
+        // Fall through — scale existing rows without re-adding deleted ones.
+      } else if (invMatchesEstimate || rows.length === 1) {
+        // Full match, or classic single-line partial import → estimate template OK.
+        // (Single custom line with no estimate name match still uses estimate rebuild.)
+        if (invMatchesEstimate || !lineItemKey(rows[0]) || estKeys.includes(lineItemKey(rows[0]))) {
+          return progressBillByAmount(estimateLines, billed, contract);
+        }
+      }
     }
   }
 

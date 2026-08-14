@@ -100,6 +100,51 @@ describe("progressBilling", () => {
     expect(progressPctFromLines(at100, 46000)).toBe(100);
   });
 
+  // Levi 2026-08-14 — Izzy service-upgrade invoice: delete Removal & disposal,
+  // save/reopen — line must not come back from estimate template.
+  it("normalizeProgressInvoiceLines does not re-add deleted estimate lines", () => {
+    const est = [
+      {
+        itemName: "Service Upgrade:Service Upgrade",
+        qty: 1,
+        unitPrice: 6150,
+        description: "Service upgrade - main 200A",
+      },
+      {
+        itemName: "Service Upgrade:Removal & disposal",
+        qty: 1,
+        unitPrice: 0,
+        description: "Removal and disposal (waived)",
+      },
+    ];
+    const invoiceOnlyMain = [
+      {
+        itemName: "Service Upgrade:Service Upgrade",
+        qty: 0.916129,
+        unitPrice: 6150,
+        description: "Service upgrade - main 200A",
+        progressBilling: true,
+      },
+    ];
+    const out = normalizeProgressInvoiceLines(invoiceOnlyMain, 6150, est);
+    expect(out).toHaveLength(1);
+    expect(out[0].itemName).toBe("Service Upgrade:Service Upgrade");
+    expect(out.some((ln) => /removal/i.test(ln.itemName || ""))).toBe(false);
+  });
+
+  it("applyProgressPctToLines never grows line count from estimate template", async () => {
+    const { applyProgressPctToLines } = await import("../src/lib/progressBilling.js");
+    const est = [
+      { itemName: "Main", qty: 1, unitPrice: 1000 },
+      { itemName: "Removal", qty: 1, unitPrice: 200 },
+    ];
+    const inv = [{ itemName: "Main", qty: 0.5, unitPrice: 1000, contractQty: 1 }];
+    const out = applyProgressPctToLines(inv, est, 80);
+    expect(out).toHaveLength(1);
+    expect(out[0].itemName).toBe("Main");
+    expect(out[0].qty).toBeCloseTo(0.8, 5);
+  });
+
   it("inferProgressInvoiceLines from multi-line QBO progress invoice (Seawald-style)", () => {
     const job = {
       id: "qbo-231595",
