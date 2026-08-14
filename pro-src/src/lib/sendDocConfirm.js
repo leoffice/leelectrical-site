@@ -75,14 +75,63 @@ export function docEmailGreetingName(job) {
   return "there";
 }
 
-/** Work / scope line for "Your invoice #… for X is ready." */
-export function docEmailWorkLabel(job) {
-  const title = s(job?.title || job?.serviceType);
+/**
+ * Short customer-facing scope for "Your estimate #… for X is ready."
+ *
+ * Prefer the estimate/invoice line description (what the customer already
+ * sees on the PDF) over job.title. Titles often keep internal notes
+ * (e.g. "ECB violations / work without permit") after the line text was
+ * cleaned for the customer — Hackner est #201964 emailed the old title
+ * even though the description no longer mentioned violations.
+ */
+export function docEmailWorkLabel(job, kind = "") {
   if (isChangeOrderJob(job)) {
-    if (title && /change\s*ord/i.test(title)) return title;
+    const title = s(job?.title || job?.serviceType);
+    if (title && /change\s*ord/i.test(title)) return shortWorkLabel(title);
     return "Change order";
   }
-  return title || "your electrical work";
+  const fromLines = firstBillableLineLabel(job, kind);
+  if (fromLines) return fromLines;
+  const title = s(job?.title || job?.serviceType);
+  if (title) return shortWorkLabel(title);
+  return "your electrical work";
+}
+
+/** First non-empty description from billable lines (estimate or invoice). */
+function firstBillableLineLabel(job, kind = "") {
+  const k = String(kind || "").toLowerCase();
+  const preferInvoice = k === "invoice";
+  const pools = preferInvoice
+    ? [job?.invoiceLines, job?.estimateLines]
+    : [job?.estimateLines, job?.invoiceLines];
+  for (const pool of pools) {
+    if (!Array.isArray(pool)) continue;
+    for (const ln of pool) {
+      const raw = s(ln?.description || ln?.itemName);
+      if (!raw) continue;
+      const firstLine =
+        raw
+          .split(/\n/)
+          .map((x) => x.trim())
+          .find(Boolean) || raw;
+      const label = shortWorkLabel(firstLine);
+      if (label) return label;
+    }
+  }
+  return "";
+}
+
+/** One short phrase — not a multi-line scope dump. */
+function shortWorkLabel(text) {
+  let t = s(text).replace(/\s+/g, " ");
+  if (!t) return "";
+  // Stop at sentence end when the first sentence is a usable phrase.
+  const sentence = t.match(/^(.{12,120}?[.!?])(?:\s|$)/);
+  if (sentence) t = sentence[1].replace(/[.!?]+$/, "").trim();
+  if (t.length <= 90) return t;
+  const cut = t.slice(0, 90);
+  const sp = cut.lastIndexOf(" ");
+  return ((sp > 40 ? cut.slice(0, sp) : cut).trim() + "…").replace(/\s+…$/, "…");
 }
 
 /** Default subject for invoice/estimate/statement customer email. */
@@ -144,8 +193,14 @@ export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } 
   if (kind === "invoice" && withPay) {
     lines.push(`Your invoice${num} is ready to view and pay online.`, "");
   } else {
-    const work = docEmailWorkLabel(job);
-    lines.push(`Your ${label}${num} for ${work} is ready.`, "");
+    const work = docEmailWorkLabel(job, kind);
+    // Only append "for …" when we have a real short label. Generic fallback
+    // reads cleaner without it ("Your estimate #201964 is ready.").
+    if (work && work !== "your electrical work") {
+      lines.push(`Your ${label}${num} for ${work} is ready.`, "");
+    } else {
+      lines.push(`Your ${label}${num} is ready.`, "");
+    }
   }
   lines.push(
     "The PDF is attached.",

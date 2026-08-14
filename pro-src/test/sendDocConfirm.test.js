@@ -6,6 +6,7 @@ import {
   defaultDocEmailSubject,
   docAttachmentName,
   docEmailGreetingName,
+  docEmailWorkLabel,
   EMAIL_POLICY_KEEP,
   EMAIL_POLICY_ONCE,
   sendEmailDiffersFromCustomer,
@@ -133,6 +134,40 @@ describe("sendDocConfirm", () => {
         "a@x.com"
       )
     ).toBe(true);
+  });
+
+  it("work label prefers estimate line description over internal job title (Hackner #201964)", () => {
+    const hackner = {
+      customer: "Yossi Hackner",
+      estimateNo: "201964",
+      title: "Supersede existing applications — ECB violations / work without permit",
+      estimateLines: [
+        {
+          description:
+            "Superseding the existing permit general wiring.\nFiling includes:\nFiling paperwork to supersede previous applications.",
+          qty: 1,
+          unitPrice: 2300,
+        },
+      ],
+    };
+    const work = docEmailWorkLabel(hackner, "estimate");
+    expect(work).toMatch(/Superseding the existing permit/i);
+    expect(work).not.toMatch(/ECB violations/i);
+    expect(work).not.toMatch(/work without permit/i);
+
+    const body = defaultDocEmailBody(hackner, "estimate");
+    expect(body).toContain("Your estimate #201964 for");
+    expect(body).toMatch(/Superseding the existing permit/i);
+    expect(body).not.toMatch(/ECB violations/i);
+  });
+
+  it("estimate body omits generic 'for your electrical work' filler", () => {
+    const body = defaultDocEmailBody(
+      { customer: "Mendel Cohen", estimateNo: "99" },
+      "estimate"
+    );
+    expect(body).toContain("Your estimate #99 is ready.");
+    expect(body).not.toMatch(/for your electrical work/i);
   });
 });
 
