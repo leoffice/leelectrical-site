@@ -45,7 +45,8 @@ describe("JobTransactionHistory", () => {
     const inv = screen.getByTestId("job-txn-inv-251841");
     expect(inv).toHaveAttribute("data-open-invoice", "0");
     expect(within(inv).queryByTestId("job-txn-open-rail")).toBeNull();
-    expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent("$0");
+    // Paid invoices show "Paid · $total" (not bare $0 — looked like empty docs).
+    expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent(/Paid/);
   });
 
   it("does not show a separate Edit payments button", () => {

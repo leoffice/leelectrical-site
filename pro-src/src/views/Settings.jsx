@@ -33,11 +33,16 @@ import {
   setEstimateGeneratorFees,
   getEstimateGeneratorFees,
   hydrateEstimateGeneratorFeesFromCloud,
+  getCheckmakerAccounts,
+  setCheckmakerAccounts,
+  hydrateCheckmakerAccountsFromCloud,
   useAppSettings,
 } from "../lib/appSettings.js";
-import { buildCheckPdfBlob, BLZ_CHECK } from "../lib/checkPrintPdf.js";
-import { openPdfForNativeView } from "../lib/pdfOpen.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
+import { buildCheckPdfBlob, normalizeCheckDate, todayCheckDate } from "../lib/checkPrintPdf.js";
+// Dynamic import of downloadPdfBlob (same pattern as DocBuilderSheet).
+// A prior static re-export through the tenant chunk toast'd
+// "openPdfForNativeView is not defined" on Generate check PDF.
 import {
   applyCompanyLogoToActiveConfig,
   applyCompanyProfileToActiveConfig,
@@ -239,14 +244,39 @@ export default function Settings() {
     ...getEstimateGeneratorFees(),
   }));
   // Check Print (BLZ flagship only) — payee / amount / date entered by Levi.
+  // Date defaults to today; user can override. Digits-only dates normalize on generate.
   const [chk, setChk] = useState(() => ({
     payee: "",
     amount: "",
-    date: "",
-    checkNo: String(BLZ_CHECK.startCheckNo),
+    date: todayCheckDate(),
+    checkNo: "",
     memo: "",
   }));
+  // Checkmaker — saved funding accounts + which one is selected + add/edit draft.
+  const [chkAccounts, setChkAccounts] = useState(() => getCheckmakerAccounts());
+  const [chkAcctId, setChkAcctId] = useState(() => getCheckmakerAccounts()[0]?.id || "");
+  const [acctDraft, setAcctDraft] = useState(null); // null | account-shaped object being added/edited
 
+  // Save the funding-account list locally + to the cloud profile (phone ↔ computer).
+  const persistCheckmakerAccounts = useCallback(
+    async (list) => {
+      setCheckmakerAccounts(list);
+      setChkAccounts(getCheckmakerAccounts());
+      if (typeof saveSettings === "function") {
+        try {
+          const doc = typeof getSettings === "function" ? await getSettings() : null;
+          const baseProfile = mergeProfile(doc?.profile || profile);
+          await saveSettings({
+            profile: { ...baseProfile, checkmakerAccounts: list },
+            features: mergeFeatures(doc?.features || features),
+          });
+        } catch (e) {
+          showToast?.("Saved on this device — cloud link failed: " + String(e?.message || e));
+        }
+      }
+    },
+    [saveSettings, getSettings, profile, features, showToast]
+  );
   // Feature subcategories start collapsed.
   const [openFeature, setOpenFeature] = useState(() =>
     Object.fromEntries(FEATURE_GROUPS.map((g) => [g.id, false]))
@@ -294,6 +324,13 @@ export default function Settings() {
             ...DEFAULT_FEES,
             ...getEstimateGeneratorFees(),
           });
+        }
+        // Checkmaker accounts — cloud is shared phone ↔ computer.
+        if (Array.isArray(doc?.profile?.checkmakerAccounts) && doc.profile.checkmakerAccounts.length) {
+          hydrateCheckmakerAccountsFromCloud(doc.profile.checkmakerAccounts);
+          const next = getCheckmakerAccounts();
+          setChkAccounts(next);
+          setChkAcctId((cur) => (next.some((a) => a.id === cur) ? cur : next[0]?.id || ""));
         }
       }
     } catch (e) {
@@ -977,105 +1014,306 @@ export default function Settings() {
         </button>
       </MenuSection>
 
-      {/* ── Check Print (BLZ flagship only) ── */}
+      {/* ── Checkmaker: Check Print + saved funding accounts (BLZ flagship only) ── */}
       {internal ? (
         <MenuSection
           id="checkPrint"
           title="Check Print"
-          summary="Print a BLZ Electric business check (front) — enter amount, payee, date"
+          summary="Print a business check (front) — pick the account, enter amount, payee, date"
           open={openMenu.checkPrint}
           onToggle={() => toggleMenu("checkPrint")}
         >
-          <p className="text-xs text-slate-500 font-semibold mb-3">
-            Generates a print-ready PDF of the check front on BLZ&apos;s own Chase
-            account ({BLZ_CHECK.bank}) with the E-13B MICR line. The written amount
-            is spelled automatically. Your authorized signature is applied automatically.
-          </p>
-          <Fld label="Pay to the order of">
-            <input
-              className={inputCls}
-              value={chk.payee}
-              data-testid="check-payee"
-              placeholder="Vendor / payee name"
-              onChange={(e) => setChk((c) => ({ ...c, payee: e.target.value }))}
-            />
-          </Fld>
-          <div className="grid grid-cols-2 gap-2">
-            <Fld label="Amount ($)">
-              <input
-                className={inputCls}
-                inputMode="decimal"
-                value={chk.amount}
-                data-testid="check-amount"
-                placeholder="397.50"
-                onChange={(e) => setChk((c) => ({ ...c, amount: e.target.value }))}
-              />
-            </Fld>
-            <Fld label="Date">
-              <input
-                className={inputCls}
-                value={chk.date}
-                data-testid="check-date"
-                placeholder="MM/DD/YYYY"
-                onChange={(e) => setChk((c) => ({ ...c, date: e.target.value }))}
-              />
-            </Fld>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Fld label="Check #">
-              <input
-                className={inputCls}
-                inputMode="numeric"
-                value={chk.checkNo}
-                data-testid="check-number"
-                onChange={(e) => setChk((c) => ({ ...c, checkNo: e.target.value }))}
-              />
-            </Fld>
-            <Fld label="Memo (optional)">
-              <input
-                className={inputCls}
-                value={chk.memo}
-                data-testid="check-memo"
-                placeholder="Invoice #"
-                onChange={(e) => setChk((c) => ({ ...c, memo: e.target.value }))}
-              />
-            </Fld>
-          </div>
-          <button
-            type="button"
-            className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full mt-1"
-            data-testid="check-generate"
-            onClick={() => {
-              const amt = Number(chk.amount);
-              if (!chk.payee.trim()) {
-                showToast?.("Enter a payee for the check");
-                return;
-              }
-              if (!Number.isFinite(amt) || amt <= 0) {
-                showToast?.("Enter a valid check amount");
-                return;
-              }
-              try {
-                const blob = buildCheckPdfBlob({
-                  payee: chk.payee.trim(),
-                  amount: amt,
-                  date: chk.date.trim(),
-                  checkNo: chk.checkNo.trim() || String(BLZ_CHECK.startCheckNo),
-                  memo: chk.memo.trim(),
-                });
-                const fname = `BLZ_Check_${(chk.checkNo || "").trim() || BLZ_CHECK.startCheckNo}.pdf`;
-                openPdfForNativeView({ blob, filename: fname });
-                showToast?.("Check PDF generated — signature included, ready to print");
-              } catch (e) {
-                showToast?.("Could not generate check: " + String(e?.message || e));
-              }
-            }}
-          >
-            Generate check PDF
-          </button>
+          {(() => {
+            const selAcct = chkAccounts.find((a) => a.id === chkAcctId) || chkAccounts[0] || null;
+            return (
+              <>
+                <p className="text-xs text-slate-500 font-semibold mb-3">
+                  Generates a print-ready PDF of the check front from a saved funding
+                  account, with the E-13B MICR line. The written amount is spelled
+                  automatically. Your authorized signature is applied automatically.
+                  Date defaults to today; type 08142026 or 08/14/2026 — both work.
+                </p>
+
+                <Fld label="Draw from account">
+                  <select
+                    className={inputCls}
+                    value={chkAcctId}
+                    data-testid="check-account"
+                    onChange={(e) => setChkAcctId(e.target.value)}
+                  >
+                    {chkAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {(a.label || a.name) + " — " + a.bank}
+                      </option>
+                    ))}
+                  </select>
+                </Fld>
+                {selAcct ? (
+                  <div className="text-[11px] text-slate-500 font-semibold -mt-1 mb-3">
+                    {selAcct.name} · {selAcct.addr1}
+                    {selAcct.addr2 ? ", " + selAcct.addr2 : ""} · acct ••
+                    {String(selAcct.account).slice(-4)} · routing {selAcct.routing}
+                  </div>
+                ) : null}
+
+                <Fld label="Pay to the order of">
+                  <input
+                    className={inputCls}
+                    value={chk.payee}
+                    data-testid="check-payee"
+                    placeholder="Vendor / payee name"
+                    onChange={(e) => setChk((c) => ({ ...c, payee: e.target.value }))}
+                  />
+                </Fld>
+                <div className="grid grid-cols-2 gap-2">
+                  <Fld label="Amount ($)">
+                    <input
+                      className={inputCls}
+                      inputMode="decimal"
+                      value={chk.amount}
+                      data-testid="check-amount"
+                      placeholder="397.50"
+                      onChange={(e) => setChk((c) => ({ ...c, amount: e.target.value }))}
+                    />
+                  </Fld>
+                  <Fld label="Date">
+                    <input
+                      className={inputCls}
+                      value={chk.date}
+                      data-testid="check-date"
+                      placeholder="MM/DD/YYYY"
+                      onChange={(e) => setChk((c) => ({ ...c, date: e.target.value }))}
+                      onBlur={() =>
+                        setChk((c) => ({ ...c, date: normalizeCheckDate(c.date) }))
+                      }
+                    />
+                  </Fld>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Fld label="Check #">
+                    <input
+                      className={inputCls}
+                      inputMode="numeric"
+                      value={chk.checkNo}
+                      data-testid="check-number"
+                      placeholder={selAcct?.startCheckNo || "1001"}
+                      onChange={(e) => setChk((c) => ({ ...c, checkNo: e.target.value }))}
+                    />
+                  </Fld>
+                  <Fld label="Memo (optional)">
+                    <input
+                      className={inputCls}
+                      value={chk.memo}
+                      data-testid="check-memo"
+                      placeholder="Invoice #"
+                      onChange={(e) => setChk((c) => ({ ...c, memo: e.target.value }))}
+                    />
+                  </Fld>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full mt-1"
+                  data-testid="check-generate"
+                  onClick={async () => {
+                    const amt = Number(chk.amount);
+                    if (!selAcct) {
+                      showToast?.("Add a funding account first");
+                      return;
+                    }
+                    if (!chk.payee.trim()) {
+                      showToast?.("Enter a payee for the check");
+                      return;
+                    }
+                    if (!Number.isFinite(amt) || amt <= 0) {
+                      showToast?.("Enter a valid check amount");
+                      return;
+                    }
+                    try {
+                      const checkNo = chk.checkNo.trim() || String(selAcct.startCheckNo || "1001");
+                      // Empty → today; 08142026 / 08/14/26 / 08/14/2026 → printed with slashes.
+                      const dateStr = normalizeCheckDate(chk.date);
+                      setChk((c) => ({ ...c, date: dateStr }));
+                      const blob = buildCheckPdfBlob({
+                        payee: chk.payee.trim(),
+                        amount: amt,
+                        date: dateStr,
+                        checkNo,
+                        memo: chk.memo.trim(),
+                        config: selAcct,
+                        signed: true,
+                      });
+                      const safe = String(selAcct.label || selAcct.name || "Check").replace(/[^\w.-]+/g, "_");
+                      const filename = safe + "_" + checkNo + ".pdf";
+                      // Dynamic import — avoids broken static binding of the PDF helper.
+                      const { downloadPdfBlob } = await import("../lib/pdfOpen.js");
+                      if (typeof downloadPdfBlob !== "function") {
+                        throw new Error("PDF download helper missing — hard-refresh the app");
+                      }
+                      downloadPdfBlob(blob, filename);
+                      showToast?.("Check PDF generated — signature included, ready to print");
+                    } catch (e) {
+                      showToast?.("Could not generate check: " + String(e?.message || e));
+                    }
+                  }}
+                >
+                  Generate check PDF
+                </button>
+
+                {/* Manage funding accounts (add / edit / remove) */}
+                <div className="mt-4 border-t border-slate-100 pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+                      Funding accounts
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs font-extrabold text-brand"
+                      data-testid="check-account-add"
+                      onClick={() =>
+                        setAcctDraft({
+                          mode: "add", id: "", label: "", name: "", addr1: "", addr2: "",
+                          phone: "", bank: "", account: "", routing: "", fractional: "", startCheckNo: "1001",
+                        })
+                      }
+                    >
+                      + Add account
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {chkAccounts.map((a) => (
+                      <div
+                        key={a.id}
+                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2"
+                        data-testid={"check-account-row-" + a.id}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-800 truncate">{a.label || a.name}</div>
+                          <div className="text-[11px] text-slate-500 font-semibold truncate">
+                            {a.bank} · acct ••{String(a.account).slice(-4)} · rt {a.routing}
+                          </div>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button type="button" className="text-xs font-extrabold text-slate-600" onClick={() => setAcctDraft({ mode: "edit", ...a })}>
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-extrabold text-rose-600"
+                            onClick={() => {
+                              if (chkAccounts.length <= 1) {
+                                showToast?.("Keep at least one account");
+                                return;
+                              }
+                              const next = chkAccounts.filter((x) => x.id !== a.id);
+                              persistCheckmakerAccounts(next);
+                              if (chkAcctId === a.id) setChkAcctId(next[0]?.id || "");
+                              showToast?.("Account removed");
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {acctDraft ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3" data-testid="check-account-editor">
+                      <div className="text-sm font-extrabold text-slate-800 mb-2">
+                        {acctDraft.mode === "add" ? "New account" : "Edit account"}
+                      </div>
+                      <Fld label="Account label / nickname">
+                        <input className={inputCls} value={acctDraft.label} placeholder="e.g. BLZ — Chase" onChange={(e) => setAcctDraft((d) => ({ ...d, label: e.target.value }))} />
+                      </Fld>
+                      <Fld label="Business / account name">
+                        <input className={inputCls} value={acctDraft.name} placeholder="BLZ Electric Inc." onChange={(e) => setAcctDraft((d) => ({ ...d, name: e.target.value }))} />
+                      </Fld>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Fld label="Address line 1">
+                          <input className={inputCls} value={acctDraft.addr1} placeholder="1243 E 15th Street" onChange={(e) => setAcctDraft((d) => ({ ...d, addr1: e.target.value }))} />
+                        </Fld>
+                        <Fld label="Address line 2">
+                          <input className={inputCls} value={acctDraft.addr2} placeholder="Brooklyn, NY 11230" onChange={(e) => setAcctDraft((d) => ({ ...d, addr2: e.target.value }))} />
+                        </Fld>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Fld label="Phone (optional)">
+                          <input className={inputCls} value={acctDraft.phone} placeholder="(718) 594-1850" onChange={(e) => setAcctDraft((d) => ({ ...d, phone: e.target.value }))} />
+                        </Fld>
+                        <Fld label="Bank (drawee)">
+                          <input className={inputCls} value={acctDraft.bank} placeholder="JPMorgan Chase Bank, N.A." onChange={(e) => setAcctDraft((d) => ({ ...d, bank: e.target.value }))} />
+                        </Fld>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Fld label="Checking account #">
+                          <input className={inputCls} inputMode="numeric" value={acctDraft.account} placeholder="606031220" onChange={(e) => setAcctDraft((d) => ({ ...d, account: e.target.value.replace(/\D/g, "") }))} />
+                        </Fld>
+                        <Fld label="Routing (ABA) #">
+                          <input className={inputCls} inputMode="numeric" value={acctDraft.routing} placeholder="021000021" onChange={(e) => setAcctDraft((d) => ({ ...d, routing: e.target.value.replace(/\D/g, "") }))} />
+                        </Fld>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Fld label="Starting check # (optional)">
+                          <input className={inputCls} inputMode="numeric" value={acctDraft.startCheckNo} placeholder="1001" onChange={(e) => setAcctDraft((d) => ({ ...d, startCheckNo: e.target.value }))} />
+                        </Fld>
+                        <Fld label="Routing fraction (optional)">
+                          <input className={inputCls} value={acctDraft.fractional} placeholder="1-12/210" onChange={(e) => setAcctDraft((d) => ({ ...d, fractional: e.target.value }))} />
+                        </Fld>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <button
+                          type="button"
+                          className="rounded-xl bg-brand px-4 py-2 text-sm font-extrabold text-white flex-1"
+                          data-testid="check-account-save"
+                          onClick={() => {
+                            const d = acctDraft;
+                            if (!d.name.trim()) {
+                              showToast?.("Account needs a business name");
+                              return;
+                            }
+                            if (!/^\d{9}$/.test(String(d.routing))) {
+                              showToast?.("Routing must be 9 digits");
+                              return;
+                            }
+                            if (!/^\d{3,17}$/.test(String(d.account))) {
+                              showToast?.("Enter a valid account number");
+                              return;
+                            }
+                            const clean = {
+                              id: d.id || "acct-" + d.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 20) + "-" + d.account.slice(-4),
+                              label: d.label.trim() || d.name.trim(),
+                              name: d.name.trim(),
+                              addr1: d.addr1.trim(),
+                              addr2: d.addr2.trim(),
+                              phone: d.phone.trim(),
+                              bank: d.bank.trim() || "Bank",
+                              account: d.account.trim(),
+                              routing: d.routing.trim(),
+                              fractional: d.fractional.trim(),
+                              startCheckNo: (d.startCheckNo || "").trim() || "1001",
+                            };
+                            const exists = chkAccounts.some((a) => a.id === clean.id);
+                            const next = exists ? chkAccounts.map((a) => (a.id === clean.id ? clean : a)) : [...chkAccounts, clean];
+                            persistCheckmakerAccounts(next);
+                            setChkAcctId(clean.id);
+                            setAcctDraft(null);
+                            showToast?.(exists ? "Account updated" : "Account added");
+                          }}
+                        >
+                          Save account
+                        </button>
+                        <button type="button" className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-extrabold text-slate-600" onClick={() => setAcctDraft(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            );
+          })()}
         </MenuSection>
       ) : null}
-
 
       {/* ── Company profile ── */}
       <MenuSection

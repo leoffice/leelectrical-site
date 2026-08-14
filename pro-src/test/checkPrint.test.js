@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { amountToWords, buildCheckPdf, BLZ_CHECK } from "../src/lib/checkPrintPdf.js";
+import {
+  amountToWords,
+  buildCheckPdf,
+  BLZ_CHECK,
+  normalizeCheckDate,
+  todayCheckDate,
+} from "../src/lib/checkPrintPdf.js";
 import { micrLine, GLYPHS, ADVANCE, BODY_HEIGHT } from "../src/lib/e13bGlyphs.js";
 
 const bytesToLatin1 = (u8) => {
@@ -53,33 +59,39 @@ describe("buildCheckPdf", () => {
     expect(text.includes("/Count 1")).toBe(true);
   });
 
-  it("prints payee, factual bank line, and auto-spelled amount", () => {
+  it("prints payee, factual bank line, current address, and auto-spelled amount", () => {
     expect(text).toContain("Acme Supply LLC");
     expect(text).toContain("JPMorgan Chase Bank, N.A.");
+    expect(text).toContain("1243 E 15th Street");
+    expect(text).toContain("Brooklyn, NY 11230");
+    expect(text).not.toContain("383 Kingston");
     expect(text).toContain("Three hundred ninety-seven and 50/100");
     expect(text).toContain("397.50");
   });
 
   it("labels the signature line and embeds Levi's signature by default", () => {
     expect(text).toContain("AUTHORIZED SIGNATURE");
-    // Default is auto-signed: JPEG signature XObject is present.
     expect(text.includes("/Subtype /Image")).toBe(true);
-    expect(text.includes("/XObject")).toBe(true);
     expect(text.includes("/DCTDecode")).toBe(true);
   });
 
-  it("can still print with a blank signature line when signed:false", () => {
+  it("can print unsigned when signed:false", () => {
     const blank = bytesToLatin1(
-      buildCheckPdf({
-        payee: "Acme Supply LLC",
-        amount: 10,
-        date: "08/14/2026",
-        checkNo: "1002",
-        signed: false,
-      })
+      buildCheckPdf({ payee: "X", amount: 1, date: "08/14/2026", signed: false })
     );
     expect(blank).toContain("AUTHORIZED SIGNATURE");
     expect(blank.includes("/Subtype /Image")).toBe(false);
+  });
+
+  it("normalizes digit-only and empty dates", () => {
+    expect(normalizeCheckDate("08142026")).toBe("08/14/2026");
+    expect(normalizeCheckDate("081426")).toBe("08/14/2026");
+    expect(normalizeCheckDate("8/14/26")).toBe("08/14/2026");
+    const fixed = new Date(2026, 7, 14); // Aug 14 2026 local
+    expect(normalizeCheckDate("", fixed)).toBe("08/14/2026");
+    expect(todayCheckDate(fixed)).toBe("08/14/2026");
+    const pdf = bytesToLatin1(buildCheckPdf({ payee: "Y", amount: 10, date: "08142026" }));
+    expect(pdf).toContain("08/14/2026");
   });
 
   it("does NOT reproduce a Chase logo/wordmark", () => {
@@ -87,8 +99,38 @@ describe("buildCheckPdf", () => {
     expect(text.includes("CHASE")).toBe(false);
   });
 
-  it("uses BLZ's own account details", () => {
+  it("uses BLZ's own account details with the current address", () => {
     expect(BLZ_CHECK.routing).toBe("021000021");
     expect(BLZ_CHECK.account).toBe("606031220");
+    expect(BLZ_CHECK.addr1).toBe("1243 E 15th Street");
+    expect(BLZ_CHECK.addr2).toBe("Brooklyn, NY 11230");
+  });
+});
+
+describe("buildCheckPdf — multi-account (config override)", () => {
+  const acct = {
+    name: "Second Co LLC",
+    addr1: "1 Test Ave",
+    addr2: "Queens, NY 11000",
+    phone: "(555) 000-0000",
+    bank: "Wells Fargo Bank, N.A.",
+    account: "123456789",
+    routing: "021000021",
+    fractional: "2-34/567",
+    startCheckNo: "500",
+  };
+  const text = bytesToLatin1(buildCheckPdf({ payee: "Vendor Inc", amount: 12.34, config: acct }));
+
+  it("draws the chosen account's name, bank, and address", () => {
+    expect(text).toContain("Second Co LLC");
+    expect(text).toContain("Wells Fargo Bank, N.A.");
+    expect(text).toContain("1 Test Ave");
+    expect(text).not.toContain("BLZ Electric");
+    expect(text).not.toContain("JPMorgan Chase");
+  });
+
+  it("uses the account's starting check number when none is given", () => {
+    // MICR check-number field is On-Us[ 500 ]On-Us via micrLine
+    expect(micrLine(acct.routing, acct.account, "500")).toBe("O500O T021000021T 123456789O");
   });
 });

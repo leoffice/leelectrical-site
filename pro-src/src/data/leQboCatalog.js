@@ -46,6 +46,15 @@ export const DEFAULT_QBO_ITEMS = [
   { name: "Installation:Ballast Replacement", type: "Service", price: 110, description: "Ballast Replacement" },
   { name: "8 Coned Service:8 Coned Service", type: "Service", price: 210, description: "Coned ticket — main service entrance" },
   { name: "8 Coned Service:Followup visit", type: "Service", price: 210, description: "Follow-up visit" },
+  {
+    // Picking this in the invoice builder opens the partial-service
+    // questionnaire (date / Con Ed ticket # / initial-visit hours) and
+    // generates BOTH visit lines. See lib/partialService.js.
+    name: "Partial Service",
+    type: "Service",
+    price: 265,
+    description: "Power outage — temporary bridge + follow-up visit (Con Ed refund letter rides in the email)",
+  },
   { name: "7 Plans and Permits:Load Letter", type: "Service", price: 500, description: "Load Letter processing fee" },
   { name: "Inspection for insurance:Inspection for insurance", type: "Service", price: 220, description: "General inspection" },
   { name: "Inspection for insurance:Submitting paperwork.", type: "Service", price: 500, description: "Inspection report" },

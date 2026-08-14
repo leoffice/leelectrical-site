@@ -494,35 +494,48 @@ export function jobsForCustomerKey(jobs, key, hints, qboIndex) {
   }
   if (key.startsWith("q:")) {
     const qid = key.slice(2);
+    // Jobs already stamped with this QuickBooks customer id.
     const byId = active.filter((j) => String(j.qboCustomerId || "").trim() === qid);
-    // Levi 2026-08-13: local estimates often had empty qboCustomerId after estimate
-    // generator save — if we ONLY return byId when any QBO-linked job exists, those
-    // local estimates vanish from the customer page. Union name-matched locals too.
-    const h = hints || {};
-    const names = [h.name, h.businessName, h.personName].filter(Boolean);
-    const byName = [];
-    const seen = new Set(byId.map((j) => String(j.id)));
-    const pushNameHits = (nm) => {
-      for (const j of active) {
-        if (!j || j.clientGroup) continue;
-        const id = String(j.id || "");
-        if (seen.has(id)) continue;
-        if (
-          customerNameMatches(j, nm) ||
-          customerNameMatches({ customer: j.personName }, nm) ||
-          customerNameMatches({ customer: j.businessName }, nm)
-        ) {
-          // Prefer unlinked locals + same-name jobs without a different QBO id
-          const jq = String(j.qboCustomerId || "").trim();
-          if (jq && jq !== qid) continue;
-          seen.add(id);
-          byName.push(j);
-        }
+    // Also fold name-matched local jobs that never got qboCustomerId stamped
+    // (estimate generator / calendar shells). Otherwise the customer card
+    // (route q:10) hides a just-created estimate that only has a display name
+    // — Levi 2026-08-13 Perfect Management / 679 Knickerbocker #201974.
+    const names = new Set();
+    for (const j of byId) {
+      for (const f of [j.customer, j.businessName, j.personName]) {
+        const n = normalizeCustomer(f);
+        if (n) names.add(n);
       }
-    };
-    for (const nm of names) pushNameHits(nm);
-    if (byId.length || byName.length) return [...byId, ...byName];
-    return [];
+    }
+    const h = hints || {};
+    for (const f of [h.name, h.businessName, h.personName]) {
+      const n = normalizeCustomer(f);
+      if (n) names.add(n);
+    }
+    const nameHits =
+      names.size === 0
+        ? []
+        : active.filter((j) => {
+            if (!j || j.clientGroup) return false;
+            const jq = String(j.qboCustomerId || "").trim();
+            // Already in byId, or belongs to a different QBO customer.
+            if (jq) return false;
+            return [...names].some(
+              (nm) =>
+                customerNameMatches(j, nm) ||
+                customerNameMatches({ customer: j.personName }, nm) ||
+                customerNameMatches({ customer: j.businessName }, nm)
+            );
+          });
+    if (!byId.length && !nameHits.length) return [];
+    const seen = new Set();
+    const out = [];
+    for (const j of [...byId, ...nameHits]) {
+      if (!j?.id || seen.has(j.id)) continue;
+      seen.add(j.id);
+      out.push(j);
+    }
+    return out;
   }
   if (key.startsWith("c:")) {
     const name = key.slice(2);

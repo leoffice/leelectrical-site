@@ -145,6 +145,92 @@ describe("customerTransactions", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("infers payment rows when paid balance has no ledger (Kabakov-style)", () => {
+    // QBO marks paid / openBalance without payment list — Payments tab was empty.
+    const sparse = [
+      {
+        id: "qbo-231418",
+        customer: "Meir Kabakov",
+        invoiceNo: "231418",
+        amount: 66600,
+        openBalance: 32100,
+        paid: false,
+        payments: [],
+        invoiceDate: "2025-06-01",
+      },
+      {
+        id: "qbo-251840",
+        customer: "Meir Kabakov",
+        invoiceNo: "251840",
+        amount: 2100,
+        openBalance: 0,
+        paid: true,
+        payments: [],
+        invoiceDate: "2026-01-15",
+        status: { Paid: { d: "2026-01-20" } },
+      },
+      {
+        id: "qbo-open",
+        customer: "Meir Kabakov",
+        invoiceNo: "999",
+        amount: 500,
+        openBalance: 500,
+        paid: false,
+        payments: [],
+      },
+    ];
+    const pays = buildCustomerTransactions(sparse, { filter: "payments" });
+    expect(pays).toHaveLength(2);
+    const partial = pays.find((r) => r.docNo === "231418");
+    const full = pays.find((r) => r.docNo === "251840");
+    expect(partial?.amount).toBe(34500);
+    expect(partial?.inferred).toBe(true);
+    expect(partial?.method).toBe("Recorded");
+    expect(full?.amount).toBe(2100);
+    expect(full?.inferred).toBe(true);
+    expect(pays.some((r) => r.docNo === "999")).toBe(false);
+  });
+
+  it("does not double-count when real payments already cover amountPaid", () => {
+    const withLedger = [
+      {
+        id: "j",
+        customer: "Acme",
+        invoiceNo: "500",
+        amount: 800,
+        openBalance: 0,
+        paid: true,
+        payments: [{ id: "p1", amount: 800, method: "Zelle", date: "2026-01-01" }],
+      },
+    ];
+    const pays = buildCustomerTransactions(withLedger, { filter: "payments" });
+    expect(pays).toHaveLength(1);
+    expect(pays[0].inferred).toBeFalsy();
+    expect(pays[0].method).toBe("Zelle");
+  });
+
+  it("infers only the remaining gap when ledger is incomplete", () => {
+    // Fully paid in QBO (open 0) but local ledger only has half — show real + gap.
+    const partialLedger = [
+      {
+        id: "j",
+        customer: "Acme",
+        invoiceNo: "600",
+        amount: 1000,
+        openBalance: 0,
+        paid: true,
+        payments: [{ id: "p1", amount: 500, method: "Check", date: "2026-02-01" }],
+      },
+    ];
+    // amountPaid inflates to 1000; ledger = 500 → gap 500
+    const pays = buildCustomerTransactions(partialLedger, { filter: "payments" });
+    expect(pays).toHaveLength(2);
+    const real = pays.find((r) => !r.inferred);
+    const gap = pays.find((r) => r.inferred);
+    expect(Number(real?.amount)).toBe(500);
+    expect(gap?.amount).toBe(500);
+  });
+
   it("sorts oldest first", () => {
     const rows = buildCustomerTransactions(jobs, { filter: "invoices", sort: "old" });
     expect(rows.map((r) => r.docNo)).toEqual(["1002", "1001"]);

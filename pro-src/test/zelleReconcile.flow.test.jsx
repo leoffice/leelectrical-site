@@ -65,10 +65,8 @@ describe("Zelle screenshot reconciliation flow", () => {
     await attachScreenshot(user);
     await user.click(screen.getByTestId("record-payment"));
 
-    await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
+    // Levi 2026-08-04: record saves immediately — no Save & Sync bar.
     expect(screen.queryByText("Payment reconciliation")).not.toBeInTheDocument();
-
-    await user.click(screen.getByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     const cmd = srv.enqueued("record_payment")[0];
     expect(cmd.payload).toMatchObject({
@@ -103,7 +101,6 @@ describe("Zelle screenshot reconciliation flow", () => {
       await user.click(screen.getByTestId("zelle-action-use_screenshot_amount"));
     }
 
-    await user.click(await screen.findByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     // Prefer screenshot amount when reconcile offers it; otherwise accept recorded amount
     const recorded = Number(srv.enqueued("record_payment")[0].payload.amount);
@@ -148,7 +145,6 @@ describe("Zelle screenshot reconciliation flow", () => {
     await waitFor(() => expect(screen.getByText("Payment reconciliation")).toBeInTheDocument());
     await user.click(screen.getByTestId("zelle-action-move_invoice"));
 
-    await user.click(await screen.findByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     const cmd = srv.enqueued("record_payment")[0];
     expect(cmd.jobId).toBe("J-2");
@@ -174,7 +170,6 @@ describe("Zelle screenshot reconciliation flow", () => {
     await waitFor(() => expect(screen.getByText("Screenshot unreadable")).toBeInTheDocument());
     await user.click(screen.getByTestId("zelle-action-manual"));
 
-    await user.click(await screen.findByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     expect(srv.enqueued("record_payment")[0].payload.ref).toBe("MANUAL1");
   });
@@ -245,8 +240,6 @@ describe("Zelle screenshot reconciliation flow", () => {
     await user.clear(conf);
     await user.type(conf, "4412");
     await user.click(screen.getByTestId("record-ach-payment"));
-    await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
-    await user.click(screen.getByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     expect(srv.enqueued("record_payment")[0].payload).toMatchObject({
       method: "ACH",

@@ -19,6 +19,11 @@ import {
 import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
 import { getStore } from "./storage/index.mjs";
 import { OFFICE_EMAIL, applyOfficeBcc } from "./officeCopy.mjs";
+import {
+  CONED_REFUND_INSTRUCTIONS,
+  jobHasPartialService,
+  withConedRefundInstructions,
+} from "./partialServiceEmail.mjs";
 
 const { buildEmailBodyHTML, buildPayLink } = emailTemplate;
 
@@ -201,7 +206,13 @@ export async function sendDocEmail({
   );
   if (shortLink) viewLink = shortLink;
 
-  const customTop = String(message || "").trim();
+  let customTop = String(message || "").trim();
+  // Partial-service (Con Ed temporary-bridge) invoice → the refund
+  // instructions MUST ride in the email body. The compose sheet normally
+  // seeds them; this is the resend/edited-message safety net. Email only —
+  // the attached PDF never carries this block.
+  const partialService = isInvoice && jobHasPartialService(job);
+  if (partialService) customTop = withConedRefundInstructions(customTop);
   // Header brand = tenant (company name + logo). Shell = APPROVED STANDARD.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
   // Payment methods (white-label language): secure link for card / ACH / check photo,
@@ -294,6 +305,7 @@ export async function sendDocEmail({
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
     (isInvoice ? `Due ${docData.dueDate} — $${docData.amountDue}\n\n` : `Total — $${docData.amountDue}\n\n`) +
+    (partialService ? `${CONED_REFUND_INSTRUCTIONS}\n\n` : "") +
     (viewLink
       ? isInvoice
         ? `View your invoice and pay: ${viewLink}`

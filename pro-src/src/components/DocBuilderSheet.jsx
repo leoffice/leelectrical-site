@@ -44,6 +44,12 @@ import {
 } from "../lib/changeOrder.js";
 import Toggle from "./Toggle.jsx";
 import LetterQuestionnaireSheet from "./LetterQuestionnaireSheet.jsx";
+import PartialServiceSheet from "./PartialServiceSheet.jsx";
+import {
+  PARTIAL_ROLE_FOLLOWUP,
+  buildPartialServiceLines,
+  isPartialServiceProduct,
+} from "../lib/partialService.js";
 import {
   isLetterProduct,
   letterAttachmentFromUpload,
@@ -134,6 +140,7 @@ const LineRow = React.memo(function LineRow({
   onAdjustModeChange,
   onLineProgress,
   onOpenLetter,
+  onOpenPartialService,
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [desc, setDesc] = useState(line.description || "");
@@ -300,8 +307,15 @@ const LineRow = React.memo(function LineRow({
     if (isLetterProduct(it.name) && onOpenLetter) {
       onOpenLetter(index, it.name);
     }
+    // Partial Service pick → questionnaire (date / ticket # / initial hours),
+    // which then writes BOTH visit lines. Invoice builder only.
+    if (isPartialServiceProduct(it.name) && onOpenPartialService) {
+      onOpenPartialService(index, it);
+    }
   };
   const letterHit = isLetterProduct(productLabel || line.itemName);
+  const partialHit =
+    !!onOpenPartialService && isPartialServiceProduct(productLabel || line.itemName);
 
   const reOpenItem = () => {
     setOpen(true);
@@ -426,6 +440,19 @@ const LineRow = React.memo(function LineRow({
           data-testid={"doc-line-letter-btn-" + (index + 1)}
         >
           ✏ Letter questionnaire — fill / approve letterhead
+        </button>
+      ) : null}
+      {partialHit ? (
+        <button
+          type="button"
+          className="w-full text-left text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5"
+          onClick={() => {
+            flush();
+            onOpenPartialService(index, null);
+          }}
+          data-testid={"doc-line-partial-btn-" + (index + 1)}
+        >
+          ⚡ Partial service — date / Con Ed ticket # / visit hours
         </button>
       ) : null}
 
@@ -1044,6 +1071,8 @@ export default function DocBuilderSheet({
     Array.isArray(jobProp?.letterDrafts) ? jobProp.letterDrafts : []
   );
   const [letterQ, setLetterQ] = useState(null); // { lineIndex, itemName }
+  // Partial-service questionnaire target — { lineIndex, rate } (rate = catalog price).
+  const [partialQ, setPartialQ] = useState(null);
   // Starts empty and fills in asynchronously: LE's internal catalogue is a
   // separate chunk (see data/qboItems.js), so it cannot be read synchronously.
   // A non-internal tenant resolves to [] with no fetch at all, and keeps an
@@ -1248,6 +1277,38 @@ export default function DocBuilderSheet({
   const openLetterForLine = useCallback((lineIndex, itemName) => {
     setLetterQ({ lineIndex, itemName: itemName || "" });
   }, []);
+
+  const openPartialForLine = useCallback((lineIndex) => {
+    setPartialQ({ lineIndex });
+  }, []);
+
+  /** Write BOTH partial-service visit lines (idempotent on re-edit). */
+  const onPartialConfirm = useCallback(
+    (answers) => {
+      const target = partialQ;
+      setPartialQ(null);
+      if (!target) return;
+      const [initial, followUp] = buildPartialServiceLines(answers);
+      setLinesTracked((rows) => {
+        const next = rows.map((ln, i) =>
+          i === target.lineIndex ? { ...ln, ...initial } : ln
+        );
+        // Re-edit updates the existing follow-up line; first pass inserts it
+        // right under the emergency visit.
+        const followIdx = next.findIndex(
+          (ln) => ln?.partialServiceRole === PARTIAL_ROLE_FOLLOWUP
+        );
+        if (followIdx >= 0) {
+          next[followIdx] = { ...next[followIdx], ...followUp };
+          return next;
+        }
+        next.splice(target.lineIndex + 1, 0, ensureLineRowId({ ...emptyLine(), ...followUp }));
+        return next;
+      });
+      showToast("Partial service — both visits added. Con Ed refund note rides in the email.");
+    },
+    [partialQ, setLinesTracked, showToast]
+  );
 
   const onLetterSaved = useCallback(
     async ({ draft, description }) => {
@@ -1471,6 +1532,17 @@ export default function DocBuilderSheet({
   // job.attachments) and letter drafts. Feeds the compose sheet's picker.
   const sendAttachmentOptions = () =>
     listSendAttachmentOptions({ job, docAttachments: attachments, letterDrafts });
+
+  /**
+   * Job snapshot for the email-body seed. The default body keys off invoice
+   * lines (partial service → Con Ed refund block) and the builder's live lines
+   * are ahead of job.invoiceLines until Save — merge them in for invoices.
+   */
+  const jobForEmailSeed = () => {
+    if (kind !== "invoice") return job;
+    const live = linesRef.current || lines;
+    return live && live.length ? { ...job, invoiceLines: live } : job;
+  };
 
   const ensureJobId = async () => {
     if (job.id) return job.id;
@@ -2369,6 +2441,7 @@ export default function DocBuilderSheet({
           onAdjustModeChange={setAdjustMode}
           onLineProgress={onLineProgress}
           onOpenLetter={kind === "invoice" || kind === "estimate" ? openLetterForLine : undefined}
+          onOpenPartialService={kind === "invoice" ? openPartialForLine : undefined}
         />
       ))}
       <button
@@ -2617,7 +2690,7 @@ export default function DocBuilderSheet({
             setSendEmailsSeed(job.email || sendEmailsSeed || "");
             if (!sendMessageSeed) {
               setSendMessageSeed(
-                defaultDocEmailBody(job, kind, {
+                defaultDocEmailBody(jobForEmailSeed(), kind, {
                   withPay: includePayLinkSeed && kind === "invoice",
                 })
               );
@@ -2638,7 +2711,7 @@ export default function DocBuilderSheet({
           initialEmail={sendEmailsSeed || job.email || ""}
           initialMessage={
             sendMessageSeed ||
-            defaultDocEmailBody(job, kind, {
+            defaultDocEmailBody(jobForEmailSeed(), kind, {
               withPay: includePayLinkSeed && kind === "invoice",
             })
           }
@@ -2656,6 +2729,15 @@ export default function DocBuilderSheet({
             setIncludePayLinkSeed(!!model.includePaymentLink);
             submitSync(true, model);
           }}
+        />
+      ) : null}
+
+      {partialQ ? (
+        <PartialServiceSheet
+          line={lines[partialQ.lineIndex] || null}
+          followUpLine={lines.find((ln) => ln?.partialServiceRole === PARTIAL_ROLE_FOLLOWUP) || null}
+          onClose={() => setPartialQ(null)}
+          onConfirm={onPartialConfirm}
         />
       ) : null}
 

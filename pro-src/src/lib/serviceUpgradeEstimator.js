@@ -187,7 +187,7 @@ export function defaultAnswers(partial = {}) {
     personName: "",
     email: "",
     phone: "",
-    /** QBO customer id when picked from CustomerSearch — must survive save */
+    /** Stamp when customer is picked from search so the job stays under q:<id>. */
     qboCustomerId: "",
     serviceAddress: "",
     billingAddress: "",
@@ -246,12 +246,6 @@ export function conduitSellPerFoot(inch, fees) {
 /**
  * Build customer-facing scope bullets (white-label process).
  * Describes work only — no internal "$ math" or meta notes like "(separate line)".
- *
- * Levi 2026-08-13 wording:
- * - "Installation of 1 m, 200 A single-phase, and 1 panel, 200 A main breaker for the commercial space."
- * - No "additional-meter rate" language
- * - No PLP run line unless > 3 ft (then additional conduit wording)
- * - Service outlet / grounding / light stay in price language, not double-listed in bullets
  */
 export function buildScopeBullets(answers, fees) {
   const a = {
@@ -266,29 +260,21 @@ export function buildScopeBullets(answers, fees) {
     const s = sizeById(m.sizeId);
     const role = roleLabel(m.role);
     const feet = feetForMeter(m, a, f);
-    // Levi 2026-08-13: two lines — meter, then panel (when included)
-    // e.g. Installation of 1 Meter, 200A single-phase for the commercial space.
-    //      Installation of 1 panel, 200A main breaker for the commercial space.
-    let meterLine = `Installation of 1 Meter, ${s.amps}A ${s.phase === 3 ? "three-phase" : "single-phase"} for the ${role}.`;
-    if (feet > 3) {
-      meterLine = meterLine.replace(
-        /\.$/,
-        `; additional conduit ${feet} ft meter-to-panel.`
-      );
-    }
-    bullets.push(meterLine);
-    if (m.includePanel !== false) {
-      bullets.push(
-        `Installation of 1 panel, ${s.amps}A main breaker for the ${role}.`
-      );
-    }
+    const parts = [
+      `Install meter ${i + 1} (${role}, ${s.label})`,
+      m.includePanel !== false ? "with new panel" : "without new panel",
+    ];
+    if (i > 0) parts.push("at additional-meter rate");
+    // Only call out long meter-to-panel runs (over 3 ft) — Levi
+    if (feet > 3) parts.push(`${feet} ft meter-to-panel run`);
+    bullets.push(parts.join(" "));
   });
 
-  // PLP equipment run: only when over 3 ft (Levi — drop the 1 ft noise)
   const hasPlp = a.meters.some((m) => m.role === "plp");
-  const plpFt = Number(a.feetPlp) || 0;
-  if (hasPlp && plpFt > 3) {
-    bullets.push(`Additional conduit: PLP meter to PLP equipment, ${plpFt} ft`);
+  if (hasPlp) {
+    bullets.push(
+      `PLP meter to PLP equipment run: ${Number(a.feetPlp) || 0} ft`
+    );
   }
 
   if (Number(a.feetMainService) > 0) {
@@ -309,8 +295,9 @@ export function buildScopeBullets(answers, fees) {
     );
   }
 
-  // Do NOT re-list service outlet / grounding / service light here — covered by the
-  // "Included in this price is labor and materials…" footer (Levi 2026-08-13).
+  if (a.includeAlways !== false) {
+    bullets.push("Service outlet, grounding system, and service light");
+  }
 
   return bullets;
 }
@@ -481,10 +468,9 @@ export function mainServicePerFoot(mainAmps, fees) {
 
 export function roleLabel(role) {
   const r = String(role || "residential");
-  // Levi 2026-08-13: customer-facing “for the commercial space / residential account”
-  if (r === "plp") return "PLP / common area";
-  if (r === "commercial") return "commercial space";
-  return "residential account";
+  if (r === "plp") return "PLP / common";
+  if (r === "commercial") return "Commercial";
+  return "Residential";
 }
 
 /** Meter fee by index: first full price, 2nd+ discounted. */
@@ -608,18 +594,26 @@ export function buildServiceUpgradeEstimate(answers) {
 
   const workBullets = buildScopeBullets(a, f);
 
-  // Levi 2026-08-13: do not list conduit/digging as NOT INCLUDED on the main package
-  // when they are simply off — only when a *separate priced line* exists for that work
-  // do we keep exclusions on *that* line (see describeUndergroundConduit / describeTrenching).
-  // Main description: labor+materials footer only; no duplicate INCLUDED: outlet list.
-  const meterWord = a.meters.length === 1 ? "meter" : "meters";
+  // NOT INCLUDED only lists options that were NOT turned on (no "if not selected" lies)
+  const includedTxt = included.length ? included.join("; ") : "See scope below";
+  const notInc = [];
+  if (!a.includeFiling) notInc.push("Filing permit and utility case paperwork");
+  if (!a.includeRemoval) notInc.push("Removal of existing equipment");
+  if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
+  if (!a.includeTrenching) notInc.push("Digging and trenching");
+  // When conduit is on but trenching off, still call out dig not included on main scope
+  if (a.includeConduit && a.conduitPath !== "overhead" && !a.includeTrenching) {
+    if (!notInc.includes("Digging and trenching")) notInc.push("Digging and trenching");
+  }
+
   const desc = [
-    `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} ${meterWord}.`,
+    `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
     "",
-    "The following is included in the upgrade:",
+    "SCOPE:",
     ...workBullets.map((b) => `- ${b}`),
     "",
-    "Included in this price is labor and materials for the above description only.",
+    `INCLUDED: ${includedTxt}.`,
+    notInc.length ? `NOT INCLUDED: ${notInc.join("; ")}.` : "",
     a.notes ? `\nNotes: ${a.notes}` : "",
   ]
     .filter(Boolean)
@@ -695,9 +689,8 @@ export function buildServiceUpgradeEstimate(answers) {
       return `${m.role} ${s.label}`;
     })
     .join("; ");
-  const meterWordTitle = a.meters.length === 1 ? "meter" : "meters";
   const title =
-    `Service upgrade - ${a.meters.length} ${meterWordTitle}: ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
+    `Service upgrade - ${a.meters.length} meter(s): ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
     (a.notes ? `\n\n${a.notes}` : "");
 
   const total = money(lines.reduce((s, ln) => s + parseAmount(ln.amount), 0));

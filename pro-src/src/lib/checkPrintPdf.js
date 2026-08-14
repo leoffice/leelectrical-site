@@ -132,7 +132,6 @@ function Page() {
       const y = PAGE_H - topY;
       ops.push(`${r2(color[0])} ${r2(color[1])} ${r2(color[2])} RG ${r2(width)} w ${r2(x1)} ${r2(y)} m ${r2(x2)} ${r2(y)} l S`);
     },
-    // topY is from page top (same as text/fillRect). Draws named XObject.
     image(name, x, topY, w, h) {
       ops.push(`q ${r2(w)} 0 0 ${r2(h)} ${r2(x)} ${r2(PAGE_H - topY - h)} cm /${name} Do Q`);
     },
@@ -197,6 +196,45 @@ function assemblePdf(page, images) {
   return out;
 }
 
+/** Today's date as MM/DD/YYYY (local timezone). */
+export function todayCheckDate(now = new Date()) {
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const yyyy = String(now.getFullYear());
+  return `${mm}/${dd}/${yyyy}`;
+}
+
+/**
+ * Normalize typed check dates:
+ *   08142026 → 08/14/2026
+ *   081426   → 08/14/2026
+ *   8/14/26  → 08/14/2026
+ * Empty → today.
+ */
+export function normalizeCheckDate(raw, now = new Date()) {
+  let s = String(raw == null ? "" : raw).trim();
+  if (!s) return todayCheckDate(now);
+  // Already has separators
+  const sep = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (sep) {
+    const mm = sep[1].padStart(2, "0");
+    const dd = sep[2].padStart(2, "0");
+    let yyyy = sep[3];
+    if (yyyy.length === 2) yyyy = "20" + yyyy;
+    return `${mm}/${dd}/${yyyy}`;
+  }
+  const dig = s.replace(/\D/g, "");
+  if (/^\d{8}$/.test(dig)) {
+    // MMDDYYYY
+    return `${dig.slice(0, 2)}/${dig.slice(2, 4)}/${dig.slice(4)}`;
+  }
+  if (/^\d{6}$/.test(dig)) {
+    // MMDDYY
+    return `${dig.slice(0, 2)}/${dig.slice(2, 4)}/20${dig.slice(4)}`;
+  }
+  return s;
+}
+
 // ── MICR band (E-13B vector glyphs) ─────────────────────────────────────────
 function drawMicr(pg, text, xLeftPt, baselineTopY, pitchPt = 0.13 * IN) {
   const scale = pitchPt / ADVANCE; // uniform — preserves authored proportions
@@ -223,12 +261,12 @@ function drawMicr(pg, text, xLeftPt, baselineTopY, pitchPt = 0.13 * IN) {
  * @param {object} o
  * @param {string} [o.payee]  pay-to-the-order-of name
  * @param {number|string} [o.amount]  numeric dollars (e.g. 397.50)
- * @param {string} [o.date]   date text (printed as-is, e.g. "08/14/2026")
+ * @param {string} [o.date]   date text (normalized; empty → today)
  * @param {number|string} [o.checkNo]  check number
  * @param {string} [o.memo]
  * @param {boolean} [o.sample]  overlay a faint non-negotiable SAMPLE mark
  * @param {boolean} [o.signed=true]  embed Levi's signature above the line
- * @param {object} [o.signatureImage]  optional PDF image {name,width,height,bytes}; defaults to LE signature
+ * @param {object} [o.signatureImage]  optional PDF image; defaults to LE signature
  * @param {object} [o.config]  override BLZ_CHECK fields
  * @returns {Uint8Array} PDF bytes
  */
@@ -245,6 +283,7 @@ export function buildCheckPdf({
 } = {}) {
   const cfg = { ...BLZ_CHECK, ...(config || {}) };
   const chkNo = String(checkNo != null && checkNo !== "" ? checkNo : cfg.startCheckNo);
+  const dateStr = normalizeCheckDate(date);
   const pg = Page();
   const images = [];
   let sigImage = null;
@@ -288,7 +327,7 @@ export function buildCheckPdf({
   // date field
   pg.text(R - 152, CT + 70, "DATE", { size: 8.5, font: "F2", color: GREY });
   pg.rule(R - 122, R - 14, CT + 72, INK, 0.9);
-  if (date) pg.text(R - 116, CT + 68, String(date), { size: 11, color: INK });
+  if (dateStr) pg.text(R - 116, CT + 68, String(dateStr), { size: 11, color: INK });
 
   // pay to the order of
   const payY = CT + 112;
@@ -316,12 +355,11 @@ export function buildCheckPdf({
   pg.rule(L + 14, R - 76, wordsY + 3, INK, 1.1);
   pg.text(R - 14, wordsY - 2, "DOLLARS", { size: 9, font: "F2", color: GREY, align: "right" });
 
-  // memo + signature line (auto-signed by default)
+  // memo + signature (auto-signed by default)
   const sigY = CB - 68;
   pg.text(L + 14, sigY + 2, "MEMO", { size: 8, font: "F2", color: GREY });
   pg.rule(L + 54, L + 260, sigY + 4, INK, 0.9);
   if (memo) pg.text(L + 62, sigY - 1, String(memo), { size: 10, color: INK });
-  // signature line + optional embedded signature image above it
   const sigLineL = R - 224;
   const sigLineR = R - 14;
   pg.rule(sigLineL, sigLineR, sigY + 4, INK, 0.9);
@@ -334,7 +372,6 @@ export function buildCheckPdf({
       h = maxH;
       w = (sigImage.width / sigImage.height) * h;
     }
-    // Sit just above the signature rule, right-aligned into the signature box.
     const sigX = sigLineR - w - 6;
     const sigTop = sigY + 4 - h - 2;
     pg.image(sigImage.name, sigX, sigTop, w, h);

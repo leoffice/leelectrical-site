@@ -149,6 +149,52 @@ describe("mergeJobs", () => {
     expect(j.invoiceNo).toBe("999001");
   });
 
+  it("numbered estimate soft-deleted still surfaces (Levi 2026-08-13)", () => {
+    const ov = {
+      "local-est-1": {
+        _new: true,
+        _deleted: true,
+        customer: "The Perfect Management",
+        estimateNo: "201974",
+        amount: "$9,950",
+        estimateLines: [{ itemName: "Service Upgrade", qty: 1, unitPrice: 7950 }],
+      },
+    };
+    const out = mergeJobs([], ov);
+    expect(out).toHaveLength(1);
+    expect(out[0].estimateNo).toBe("201974");
+    expect(out[0]._deleted).toBe(false);
+  });
+
+  it("confirmed estimate without number still surfaces", () => {
+    const ov = {
+      "local-est-2": {
+        _new: true,
+        _deleted: true,
+        customer: "Draft Co",
+        _estimateConfirmed: true,
+        estimateLines: [{ itemName: "Labor", qty: 1, unitPrice: 500 }],
+      },
+    };
+    const out = mergeJobs([], ov);
+    expect(out.map((j) => j.id)).toContain("local-est-2");
+    expect(out[0]._deleted).toBe(false);
+  });
+
+  it("estimate lines alone (no number/confirm yet) still surfaces", () => {
+    const ov = {
+      "local-est-3": {
+        _new: true,
+        _deleted: true,
+        customer: "Draft Co",
+        estimateLines: [{ itemName: "Labor", qty: 1, unitPrice: 500 }],
+      },
+    };
+    const out = mergeJobs([], ov);
+    expect(out.map((j) => j.id)).toContain("local-est-3");
+    expect(out[0]._deleted).toBe(false);
+  });
+
   // Regression: change-order edit that "won't stick" (inv #231595). The device
   // held a stale pre-CO overlay (1 line, $32k) while QuickBooks already had the
   // emailed change order (2 lines, $42k + $2.7k). The stale overlay must yield.

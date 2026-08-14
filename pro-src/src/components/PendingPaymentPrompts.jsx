@@ -19,6 +19,17 @@ import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 
 const IS_TEST = typeof process !== "undefined" && process.env && process.env.NODE_ENV === "test";
 
+/** Whole-token match — "electric" must not hit "electrical" (Kivman memo noise). */
+function wordIn(blob, tok) {
+  if (!tok || !blob) return false;
+  const t = String(tok).toLowerCase();
+  const b = String(blob).toLowerCase();
+  if (b === t) return true;
+  // Word-boundary style: start/end or non-alnum neighbors
+  const re = new RegExp(`(?:^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`);
+  return re.test(b);
+}
+
 /** Score open invoices for "Where does it go?" shortlist (Levi 2026-08-03). */
 function scoreJobForPayment(job, { amount, memo, fromName, query }) {
   if (!job) return -1;
@@ -27,6 +38,7 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
   if (paid && open <= 0.01) return -1;
   // Prefer jobs with some balance or an invoice #
   const inv = String(job.invoiceNo || "").trim();
+  const invDigits = inv.replace(/^LE-/i, "");
   if (!inv && open <= 0) return -1;
   let score = 0;
   const payAmt = parseAmount(amount);
@@ -43,6 +55,7 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
     job.billingAddress,
     inv,
     job.memo,
+    job.title,
   ]
     .filter(Boolean)
     .join(" ")
@@ -52,32 +65,61 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
   const q = String(query || "").toLowerCase().trim();
   if (memoL) {
     for (const tok of memoL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)) {
-      if (blob.includes(tok)) score += 20;
+      if (wordIn(blob, tok)) score += 20;
     }
   }
+  let fromHits = 0;
+  const fromToks = fromL
+    ? fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)
+    : [];
   if (fromL) {
     // Levi 2026-08-05: payer name beats pure amount match (SIMA JOUDEH → Sima Expediter,
     // not "open $1800" on an unrelated invoice). First token match is strong.
-    const fromToks = fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
     const custL = String(job.customer || job.customerName || "")
       .toLowerCase()
       .trim();
     for (const tok of fromToks) {
-      if (blob.includes(tok)) score += 12;
+      if (wordIn(blob, tok) || blob.includes(tok)) {
+        score += 12;
+        fromHits += 1;
+      }
       if (custL && (custL.includes(tok) || tok.includes(custL.split(/\s+/)[0] || ""))) {
         score += 80;
+        fromHits += 1;
       }
     }
     // Full first-word of payer equals start of customer (SIMA ↔ Sima …)
     const firstFrom = fromToks[0] || "";
-    if (firstFrom && custL.startsWith(firstFrom)) score += 40;
+    if (firstFrom && custL.startsWith(firstFrom)) {
+      score += 40;
+      fromHits += 1;
+    }
+    // Payer name present but zero overlap → amount-only must not top the list
+    // (Eliezer Kivman $450 ≠ Rochel Teleshevsky #231419 due $450). Levi 2026-08-13.
+    if (fromToks.length && fromHits === 0) score -= 120;
   }
   if (q) {
+    // Full query (incl. "le-2716") and LE- / bare digits for invoice search
     if (blob.includes(q)) score += 50;
+    const qNorm = q.replace(/^#/, "").replace(/^le-/, "le-");
+    if (inv && (inv.toLowerCase() === qNorm || inv.toLowerCase() === `le-${qNorm.replace(/^le-/, "")}`)) {
+      score += 80;
+    }
+    if (invDigits && (qNorm === invDigits || qNorm === `le-${invDigits}` || q === invDigits)) {
+      score += 80;
+    }
     for (const tok of q.split(/[^a-z0-9.$]+/).filter((t) => t.length >= 2)) {
-      if (blob.includes(tok)) score += 15;
+      if (blob.includes(tok) || wordIn(blob, tok)) score += 15;
       const n = parseAmount(tok);
-      if (n > 0 && (Math.abs(open - n) < 0.02 || String(inv) === tok.replace(/^#/, ""))) score += 40;
+      if (
+        n > 0 &&
+        (Math.abs(open - n) < 0.02 ||
+          String(inv) === tok.replace(/^#/, "") ||
+          invDigits === tok.replace(/^#/, "") ||
+          invDigits === String(Math.round(n)))
+      ) {
+        score += 40;
+      }
     }
   }
   if (open > 0) score += 5;

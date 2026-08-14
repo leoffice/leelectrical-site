@@ -64,13 +64,38 @@ fi
 # --- Build the PWA ---
 # Bake the outbound-email app key (matches the CUSTOMER_EMAIL_KEY Pages secret)
 # so tokenless clients can still authenticate to customer-email/send-doc-email.
+# HARD GUARD (2026-08-13, Invoice #LE-2716 incident): a v446 build from a
+# worktree WITHOUT the gitignored .le-send-key shipped a key-less bundle — every
+# app send 401'd and customers got the minimal Gmail-fallback email instead of
+# the branded invoice layout. A key-less prod build must never ship again.
+# Lookup order: repo checkout → ~/.le-send-key (machine-canonical copy, so
+# fresh worktrees/clones still bake it).
 if [ -f "$REPO/.le-send-key" ]; then
   export VITE_CUSTOMER_EMAIL_KEY="$(tr -d '[:space:]' < "$REPO/.le-send-key")"
-  echo "▸ email send key baked into build (VITE_CUSTOMER_EMAIL_KEY set)"
+  echo "▸ email send key baked into build (from $REPO/.le-send-key)"
+elif [ -f "$HOME/.le-send-key" ]; then
+  export VITE_CUSTOMER_EMAIL_KEY="$(tr -d '[:space:]' < "$HOME/.le-send-key")"
+  echo "▸ email send key baked into build (from ~/.le-send-key fallback)"
 else
-  echo "⚠️  no .le-send-key — build will ship WITHOUT the email app key (sends 401 unless signed in)"
+  echo "✗ REFUSING TO DEPLOY: no .le-send-key in $REPO or \$HOME."
+  echo "    A key-less bundle makes every app email send 401 → customers get the"
+  echo "    off-brand Gmail-fallback layout (the Invoice #LE-2716 incident)."
+  echo "    → copy .le-send-key into this checkout (or ~/.le-send-key), then rerun."
+  exit 6
+fi
+if [ -z "$VITE_CUSTOMER_EMAIL_KEY" ]; then
+  echo "✗ REFUSING TO DEPLOY: .le-send-key exists but is EMPTY."
+  exit 6
 fi
 ( cd pro-src && npm run build )
+
+# --- GUARD 3b: the baked key must actually be in the built assets ---
+if ! grep -rqF "$VITE_CUSTOMER_EMAIL_KEY" app/pro/assets/; then
+  echo "✗ REFUSING TO DEPLOY: built app/pro/assets/ does not contain the baked email key."
+  echo "    (vite env plumbing broke — a deploy now would repeat the LE-2716 layout regression)"
+  exit 7
+fi
+echo "▸ baked email key verified present in built assets ✓"
 
 # --- GUARD 3: the built service worker must be valid JS (a broken SW breaks PWA updates) ---
 if ! node --check app/pro/sw.js 2>/dev/null; then
