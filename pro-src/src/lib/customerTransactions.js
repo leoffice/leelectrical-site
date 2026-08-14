@@ -1,7 +1,12 @@
 // Customer-level transaction ledger — invoices, estimates, payments across
 // all job addresses for one company (not sub-companies).
-import { openBalance, invoiceTotal, dedupeJobsByInvoiceNo } from "./customers.js";
-import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./payments.js";
+import { openBalance, invoiceTotal, amountPaid, dedupeJobsByInvoiceNo } from "./customers.js";
+import {
+  normalizePayments,
+  normalizePaymentMethod,
+  fmtPaymentDate,
+  totalPaid,
+} from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 import {
@@ -9,6 +14,33 @@ import {
   paymentInvoiceDocNo,
   suggestInvoiceForPayment,
 } from "./paymentApply.js";
+
+/**
+ * QBO/sync often stamps paid / openBalance without a payment ledger (Meir
+ * Kabakov: $288k paid, zero payment rows). For History UI only — never write
+ * these back as real payments. Gap = amountPaid − ledger sum.
+ */
+export function inferredPaymentGap(job) {
+  if (!job || !String(job.invoiceNo || "").trim()) return 0;
+  const paid = amountPaid(job);
+  if (!(paid > 0.01)) return 0;
+  const ledger = totalPaid(normalizePayments(job));
+  const gap = paid - ledger;
+  return gap > 0.01 ? gap : 0;
+}
+
+/** Date for a balance-inferred payment row (Paid stamp → invoice date → empty). */
+export function inferredPaymentDate(job) {
+  return (
+    normalizeSortDate(job?.status?.Paid?.d) ||
+    normalizeSortDate(job?.paidAt) ||
+    normalizeSortDate(job?.paymentDate) ||
+    normalizeSortDate(job?.invoiceDate) ||
+    normalizeSortDate(job?.status?.Invoiced?.d) ||
+    normalizeSortDate(job?.updatedAt) ||
+    ""
+  );
+}
 
 /**
  * Soft palette for doc-number bubbles — NO green (payment amount stays green).
@@ -372,6 +404,41 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         color: unlinked ? { bg: "bg-slate-100", text: "text-slate-500", ring: "ring-slate-200", border: "border-slate-300", shape: "pill" } : familyColor,
         unlinked,
         // Suggestion filled later for customer-level lists (needs all jobs).
+        applySuggestion: null,
+      });
+    }
+
+    // Paid amount with no (or incomplete) ledger — show a balance-inferred row
+    // so Payments tab is not empty when TOTAL paid is large (Kabakov case).
+    const gap = inferredPaymentGap(j);
+    if (gap > 0.01) {
+      const dateRaw = inferredPaymentDate(j);
+      const p = {
+        id: "inferred-" + j.id,
+        amount: gap,
+        method: "Recorded",
+        date: dateRaw,
+        note: "From balance (payment detail not loaded)",
+        _inferred: true,
+      };
+      rows.push({
+        id: "pay:" + j.id + ":inferred",
+        kind: "payment",
+        sortDate: String(dateRaw || ""),
+        jobId: j.id,
+        job: j,
+        customer,
+        payment: p,
+        amount: gap,
+        method: "Recorded",
+        docNo: String(j.invoiceNo || paymentInvoiceDocNo(j, p) || ""),
+        address,
+        dateLabel: shortTxnDate(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw, new Date(), dateRaw),
+        legacyWeb: false,
+        color: familyColor,
+        unlinked: false,
+        inferred: true,
         applySuggestion: null,
       });
     }
