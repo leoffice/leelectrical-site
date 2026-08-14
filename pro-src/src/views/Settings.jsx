@@ -40,10 +40,9 @@ import {
 } from "../lib/appSettings.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import { buildCheckPdfBlob } from "../lib/checkPrintPdf.js";
-// Same proven path as letterhead / doc builder PDFs. Avoid openPdfForNativeView
-// here — a prior Settings chunk called it as a bare global and toast'd
-// "openPdfForNativeView is not defined".
-import { downloadPdfBlob } from "../lib/pdfOpen.js";
+// Dynamic import of downloadPdfBlob (same pattern as DocBuilderSheet).
+// A prior static re-export through the tenant chunk toast'd
+// "openPdfForNativeView is not defined" on Generate check PDF.
 import {
   applyCompanyLogoToActiveConfig,
   applyCompanyProfileToActiveConfig,
@@ -1111,7 +1110,7 @@ export default function Settings() {
                   type="button"
                   className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full mt-1"
                   data-testid="check-generate"
-                  onClick={() => {
+                  onClick={async () => {
                     const amt = Number(chk.amount);
                     if (!selAcct) {
                       showToast?.("Add a funding account first");
@@ -1127,16 +1126,28 @@ export default function Settings() {
                     }
                     try {
                       const checkNo = chk.checkNo.trim() || String(selAcct.startCheckNo || "1001");
+                      // Accept 08142026 or 08/14/2026 — print with slashes when digits-only.
+                      let dateStr = chk.date.trim();
+                      const dig = dateStr.replace(/\D/g, "");
+                      if (/^\d{8}$/.test(dig)) {
+                        dateStr = `${dig.slice(0, 2)}/${dig.slice(2, 4)}/${dig.slice(4)}`;
+                      }
                       const blob = buildCheckPdfBlob({
                         payee: chk.payee.trim(),
                         amount: amt,
-                        date: chk.date.trim(),
+                        date: dateStr,
                         checkNo,
                         memo: chk.memo.trim(),
                         config: selAcct,
                       });
                       const safe = String(selAcct.label || selAcct.name || "Check").replace(/[^\w.-]+/g, "_");
-                      downloadPdfBlob(blob, safe + "_" + checkNo + ".pdf");
+                      const filename = safe + "_" + checkNo + ".pdf";
+                      // Dynamic import — avoids broken static binding of the PDF helper.
+                      const { downloadPdfBlob } = await import("../lib/pdfOpen.js");
+                      if (typeof downloadPdfBlob !== "function") {
+                        throw new Error("PDF download helper missing — hard-refresh the app");
+                      }
+                      downloadPdfBlob(blob, filename);
                       showToast?.("Check PDF generated — print and sign by hand");
                     } catch (e) {
                       showToast?.("Could not generate check: " + String(e?.message || e));
