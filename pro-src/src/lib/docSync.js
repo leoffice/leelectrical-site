@@ -184,8 +184,49 @@ export function planInvoicePatchFromEstimateUpdate(invoiceJob, estimateLines, op
     explicitPct != null && !Number.isNaN(explicitPct)
       ? Math.min(100, Math.max(0, explicitPct))
       : Math.min(100, Math.max(0, derivedPct || 100));
-  const invLines = progressBillLines(estLines, pct);
-  const total = linesTotal(invLines);
+
+  // Prefer the invoice's current line set when it is a deliberate subset of the
+  // estimate (e.g. user deleted a waived line). Never re-expand to the full
+  // estimate template — that snapped Seewald #231595 and Izzy invoices back.
+  const invKeys = (priorLines || [])
+    .map((ln) => String(ln?.itemName || "").trim().toLowerCase())
+    .filter(Boolean);
+  const estKeys = estLines.map((ln) => String(ln?.itemName || "").trim().toLowerCase());
+  const invIsSubset =
+    invKeys.length > 0 &&
+    invKeys.every((k) => estKeys.includes(k)) &&
+    invKeys.length < estKeys.length;
+  let template = estLines;
+  if (invIsSubset) {
+    const byKey = new Map();
+    for (const el of estLines) {
+      const k = String(el?.itemName || "").trim().toLowerCase();
+      if (k && !byKey.has(k)) byKey.set(k, el);
+    }
+    const ordered = invKeys.map((k) => byKey.get(k)).filter(Boolean);
+    if (ordered.length) template = ordered;
+  } else if (priorLines?.length && invKeys.length === estKeys.length) {
+    // Same count — still scale existing invoice rows to keep edits (rate/desc).
+    template = priorLines.map((ln, i) => {
+      const k = String(ln?.itemName || "").trim().toLowerCase();
+      const est = estLines.find((e) => String(e?.itemName || "").trim().toLowerCase() === k);
+      return est ? { ...ln, unitPrice: est.unitPrice ?? ln.unitPrice, rate: est.unitPrice ?? ln.unitPrice } : ln;
+    });
+  }
+
+  const invLines = progressBillLines(template, pct);
+  let total = linesTotal(invLines);
+  // Hard floor: never drop invoice face below what is already on the job or already paid.
+  // Prevents "went back to $32k" when contract/estimate rebuild under-shoots.
+  const priorFace = parseAmount(invoiceJob.amount) || 0;
+  const paidSum = (Array.isArray(invoiceJob.payments) ? invoiceJob.payments : []).reduce(
+    (s, p) => s + parseAmount(p?.amount),
+    0
+  );
+  const floor = Math.max(priorFace, paidSum);
+  if (floor > total + 0.01) {
+    total = floor;
+  }
   return {
     estimateLines: cloneLines(estLines),
     contractAmount: contract,
