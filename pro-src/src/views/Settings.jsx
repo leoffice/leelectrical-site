@@ -39,7 +39,12 @@ import {
   useAppSettings,
 } from "../lib/appSettings.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
-import { buildCheckPdfBlob, normalizeCheckDate, todayCheckDate } from "../lib/checkPrintPdf.js";
+import {
+  BLZ_CHECK,
+  buildCheckPdfBlob,
+  normalizeCheckDate,
+  todayCheckDate,
+} from "../lib/checkPrintPdf.js";
 // Dynamic import of downloadPdfBlob (same pattern as DocBuilderSheet).
 // A prior static re-export through the tenant chunk toast'd
 // "openPdfForNativeView is not defined" on Generate check PDF.
@@ -1133,13 +1138,35 @@ export default function Settings() {
                       // Empty → today; 08142026 / 08/14/26 / 08/14/2026 → printed with slashes.
                       const dateStr = normalizeCheckDate(chk.date);
                       setChk((c) => ({ ...c, date: dateStr }));
+                      // Normalize bank fields so a newly saved/edited account always MICR-prints
+                      // (strips dashes/spaces on routing & account). Signature stays on.
+                      const config = {
+                        ...selAcct,
+                        name: String(selAcct.name || "").trim() || BLZ_CHECK.name,
+                        addr1: String(selAcct.addr1 || "").trim() || BLZ_CHECK.addr1,
+                        addr2: String(selAcct.addr2 || "").trim() || BLZ_CHECK.addr2,
+                        phone: String(selAcct.phone || "").trim() || BLZ_CHECK.phone,
+                        bank: String(selAcct.bank || "").trim() || BLZ_CHECK.bank,
+                        routing: String(selAcct.routing || "").replace(/\D/g, "") || BLZ_CHECK.routing,
+                        account: String(selAcct.account || "").replace(/\D/g, "") || BLZ_CHECK.account,
+                        fractional: String(selAcct.fractional || "").trim() || BLZ_CHECK.fractional,
+                        startCheckNo: String(selAcct.startCheckNo || "1001").replace(/\D/g, "") || "1001",
+                      };
+                      if (config.routing.length !== 9) {
+                        showToast?.("Routing must be 9 digits (saved account or BLZ default)");
+                        return;
+                      }
+                      if (!config.account) {
+                        showToast?.("Account number is required on the funding account");
+                        return;
+                      }
                       const blob = buildCheckPdfBlob({
                         payee: chk.payee.trim(),
                         amount: amt,
                         date: dateStr,
                         checkNo,
                         memo: chk.memo.trim(),
-                        config: selAcct,
+                        config,
                         signed: true,
                       });
                       const safe = String(selAcct.label || selAcct.name || "Check").replace(/[^\w.-]+/g, "_");

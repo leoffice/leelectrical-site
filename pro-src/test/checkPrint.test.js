@@ -39,6 +39,9 @@ describe("E-13B MICR", () => {
   it("builds the standard commercial MICR string (on-us/transit/account)", () => {
     expect(micrLine("021000021", "606031220", "1001")).toBe("O1001O T021000021T 606031220O");
   });
+  it("MICR strips non-digits so saved accounts with dashes/spaces still print", () => {
+    expect(micrLine("021-000021", "606 031 220", "1,001")).toBe("O1001O T021000021T 606031220O");
+  });
 });
 
 describe("buildCheckPdf", () => {

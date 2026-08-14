@@ -12,7 +12,7 @@
 //
 // The bottom MICR line is drawn in genuine E-13B glyph geometry (vector rects)
 // at the correct 0.130" pitch band — not a monospace substitute.
-import { ADVANCE, BODY_HEIGHT, GLYPHS, micrLine } from "./e13bGlyphs.js";
+import { ADVANCE, BODY_HEIGHT, GLYPHS, micrLine, micrDigits } from "./e13bGlyphs.js";
 import { leSignatureImage } from "./leSignatureJpeg.js";
 
 const PAGE_W = 612;
@@ -281,8 +281,14 @@ export function buildCheckPdf({
   signatureImage,
   config,
 } = {}) {
-  const cfg = { ...BLZ_CHECK, ...(config || {}) };
-  const chkNo = String(checkNo != null && checkNo !== "" ? checkNo : cfg.startCheckNo);
+  const raw = { ...BLZ_CHECK, ...(config || {}) };
+  // Human-facing fields as typed; MICR always digit-only so any saved account prints.
+  const cfg = {
+    ...raw,
+    routing: micrDigits(raw.routing) || BLZ_CHECK.routing,
+    account: micrDigits(raw.account) || BLZ_CHECK.account,
+  };
+  const chkNo = micrDigits(checkNo != null && checkNo !== "" ? checkNo : raw.startCheckNo) || "1001";
   const dateStr = normalizeCheckDate(date);
   const pg = Page();
   const images = [];
@@ -389,9 +395,15 @@ export function buildCheckPdf({
     pg.text(cx, (CT + CB) / 2, "SAMPLE - NON-NEGOTIABLE", { size: 30, font: "F2", color: [0.9, 0.72, 0.72], align: "center" });
   }
 
-  // MICR band (E-13B), centered near the check bottom
+  // MICR band (E-13B), centered near the check bottom — always uses digit-only
+  // routing/account/check# from the selected funding account (change/save-safe).
   const micr = micrLine(cfg.routing, cfg.account, chkNo);
-  const micrW = micr.length * ADVANCE * ((0.13 * IN) / ADVANCE);
+  // Only advance for characters we can draw (skip unknown so pitch stays tight).
+  let micrCells = 0;
+  for (const ch of micr) {
+    if (ch === " " || GLYPHS[ch]) micrCells += 1;
+  }
+  const micrW = micrCells * ADVANCE * ((0.13 * IN) / ADVANCE);
   drawMicr(pg, micr, cx - micrW / 2, CB - 0.34 * IN);
 
   pg.text(L + 14, CB - 10, "Void after 90 days.  Security features on original.", { size: 6.5, color: FAINT });
