@@ -6,6 +6,7 @@ import {
   defaultDocEmailSubject,
   docAttachmentName,
   docEmailGreetingName,
+  docEmailWorkLabel,
   EMAIL_POLICY_KEEP,
   EMAIL_POLICY_ONCE,
   sendEmailDiffersFromCustomer,
@@ -133,6 +134,37 @@ describe("sendDocConfirm", () => {
         "a@x.com"
       )
     ).toBe(true);
+  });
+
+  // Levi 2026-08-14 — Yossi Hackner est #201964: email said "ECB violations" from
+  // stale job.title while line description already said supersede (no violation).
+  it("email work label prefers line description over stale violation title", () => {
+    const hackner = {
+      customer: "Yossi Hackner",
+      personName: "Yossi Hackner",
+      estimateNo: "201964",
+      title: "Supersede existing applications — ECB violations / work without permit",
+      estimateLines: [
+        {
+          description:
+            "Superseding the existing permit general wiring.\nFiling includes: Filing paperwork to supersede previous applications.",
+          qty: 1,
+          unitPrice: 2300,
+        },
+      ],
+    };
+    const work = docEmailWorkLabel(hackner);
+    expect(work).toMatch(/Superseding the existing permit/i);
+    expect(work).not.toMatch(/ECB|violation/i);
+    const body = defaultDocEmailBody(hackner, "estimate");
+    expect(body).toContain(
+      "Your estimate #201964 for Superseding the existing permit general wiring is ready."
+    );
+    expect(body).not.toMatch(/ECB|violation/i);
+  });
+
+  it("falls back to job title when no line descriptions", () => {
+    expect(docEmailWorkLabel({ title: "Panel upgrade" })).toBe("Panel upgrade");
   });
 });
 

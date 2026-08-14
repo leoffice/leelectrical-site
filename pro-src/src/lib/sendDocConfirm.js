@@ -75,6 +75,29 @@ export function docEmailGreetingName(job) {
   return "there";
 }
 
+/**
+ * Short scope phrase from the first document line (what the PDF shows).
+ * Prefer this over job.title so email copy tracks edited line descriptions.
+ */
+function scopeFromDocLines(job) {
+  const lines = []
+    .concat(Array.isArray(job?.invoiceLines) ? job.invoiceLines : [])
+    .concat(Array.isArray(job?.estimateLines) ? job.estimateLines : []);
+  for (const ln of lines) {
+    if (!ln) continue;
+    const desc = s(ln.description || ln.itemName || ln.item);
+    if (!desc) continue;
+    // Email intro wants one short phrase, not the full multi-line scope block.
+    let first = desc.split(/\n/)[0].replace(/\s+/g, " ").trim();
+    // Drop trailing period so "for X is ready." doesn't read "for X. is ready."
+    first = first.replace(/[.]+$/, "").trim();
+    if (!first) continue;
+    if (first.length <= 100) return first;
+    return first.slice(0, 97).replace(/\s+\S*$/, "").trim() + "…";
+  }
+  return "";
+}
+
 /** Work / scope line for "Your invoice #… for X is ready." */
 export function docEmailWorkLabel(job) {
   const title = s(job?.title || job?.serviceType);
@@ -82,6 +105,11 @@ export function docEmailWorkLabel(job) {
     if (title && /change\s*ord/i.test(title)) return title;
     return "Change order";
   }
+  // Levi 2026-08-14 — Yossi Hackner est #201964: title still said "ECB violations"
+  // after the line description was rewritten without violation language. Customer
+  // email used title and leaked the old wording. Prefer live line description.
+  const fromLines = scopeFromDocLines(job);
+  if (fromLines) return fromLines;
   return title || "your electrical work";
 }
 
