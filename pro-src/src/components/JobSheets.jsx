@@ -71,9 +71,18 @@ import {
   fmtPaymentLine,
   movePayment,
   normalizePayments,
+  paymentId,
   removePayment,
   updatePayment,
 } from "../lib/payments.js";
+import {
+  autoAllocatePayment,
+  formatInvoiceApplyLine,
+  money2,
+  paymentGroupId,
+  sumAllocations,
+  validatePaymentAllocations,
+} from "../lib/paymentSplit.js";
 import {
   formatInvoicePayOption,
   formatPayTargetOption,
@@ -507,7 +516,7 @@ export function MarkPaidSheet({
   const job = activeJob;
   const showCustomerPick = needsPick || reassign;
   const due = job ? openBalance(job) : 0;
-  const alreadyPaid = job ? due <= 0.01 : false;
+  // alreadyPaid is computed after openInvoices / multiMode are known.
   const [amt, setAmt] = useState(() => {
     if (!jobProp) return "";
     const d = openBalance(jobProp);
@@ -557,18 +566,39 @@ export function MarkPaidSheet({
     setAwaitingProof(true);
   }, [openProofPicker]);
 
+  const customerNameForPay =
+    pickCust?.name ||
+    pickCust?.businessName ||
+    activeJob?.customer ||
+    jobProp?.customer ||
+    custDraft ||
+    "";
+
+  /** All open invoices for this customer (multi-apply when 2+). */
   const openInvoices = useMemo(() => {
-    if (!showCustomerPick || !pickCust) return [];
-    return invoicesForCustomerPick(jobs, pickCust.name, {
+    if (!customerNameForPay) return [];
+    return invoicesForCustomerPick(jobs, customerNameForPay, {
       openOnly: true,
-      includeJobId: jobProp?.id || "",
+      includeJobId: jobProp?.id || activeJob?.id || "",
     });
-  }, [showCustomerPick, pickCust, jobs, jobProp?.id]);
+  }, [customerNameForPay, jobs, jobProp?.id, activeJob?.id]);
+
+  const openInvoicesKey = openInvoices.map((j) => j.id + ":" + openBalance(j)).join("|");
+  /** Split UI when 2+ open invoices — card/process stay single-invoice. */
+  const multiEligible = openInvoices.length >= 2;
+
+  /** Per-invoice apply amounts (display strings) for multi-invoice record. */
+  const [allocs, setAllocs] = useState({});
+  const allocsManualRef = useRef(false);
 
   useEffect(() => {
     if (!showCustomerPick) return;
     if (openInvoices.length === 1) setActiveJob(openInvoices[0]);
-    else if (!openInvoices.some((j) => j.id === activeJob?.id)) {
+    else if (openInvoices.length > 1) {
+      // Multi-invoice: keep a context job (prefer opened job) for name/email.
+      if (jobProp && openInvoices.some((j) => j.id === jobProp.id)) setActiveJob(jobProp);
+      else if (!openInvoices.some((j) => j.id === activeJob?.id)) setActiveJob(openInvoices[0]);
+    } else if (!openInvoices.some((j) => j.id === activeJob?.id)) {
       if (reassign && jobProp && openInvoices.some((j) => j.id === jobProp.id)) setActiveJob(jobProp);
       else setActiveJob(null);
     }
@@ -576,6 +606,12 @@ export function MarkPaidSheet({
 
   useEffect(() => {
     if (!activeJob) return;
+    // Multi-invoice: payment total is the check/Zelle amount — do not replace with one invoice due.
+    if (multiEligible) {
+      setAchName(activeJob.customer || "");
+      setUseSavedCard(Boolean(activeJob.solaCardToken));
+      return;
+    }
     // Autofill may setActiveJob after reading the check — never clobber vision amount with open balance.
     if (!visionAmountLockedRef.current) {
       const d = openBalance(activeJob);
@@ -587,7 +623,7 @@ export function MarkPaidSheet({
     }
     setAchName(activeJob.customer || "");
     setUseSavedCard(Boolean(activeJob.solaCardToken));
-  }, [activeJob?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeJob?.id, multiEligible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCard = mth === "Credit card";
   const isCheck = mth === "Check";
@@ -595,6 +631,33 @@ export function MarkPaidSheet({
   const isZelle = mth === "Zelle";
   const canProcessBank = isAch || isCheck;
   const isProcessIntent = canProcessBank && payIntent === "process";
+  /** Multi-invoice apply (books record only — not card charge / bank process). */
+  const multiMode = multiEligible && !isCard && !isProcessIntent;
+  const alreadyPaid = multiMode
+    ? openInvoices.length > 0 && openInvoices.every((j) => openBalance(j) <= 0.01)
+    : job
+      ? due <= 0.01
+      : false;
+  const inv = job?.invoiceNo || "";
+  const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
+  const appliedSum = multiMode ? sumAllocations(allocs) : 0;
+  const unallocated = multiMode ? money2(payAmt - appliedSum) : 0;
+
+  // Auto-split payment total across open invoices (exact sum). Re-runs when
+  // amount or open list changes; manual line edits set allocsManualRef.
+  useEffect(() => {
+    if (!multiMode) return;
+    if (allocsManualRef.current) return;
+    const next = autoAllocatePayment(openInvoices, payAmt, {
+      preferJobId: jobProp?.id || activeJob?.id || "",
+    });
+    const asFields = {};
+    for (const j of openInvoices) {
+      const n = money2(next[j.id] || 0);
+      asFields[j.id] = n > 0.009 ? fmtAmountField(n) : "";
+    }
+    setAllocs(asFields);
+  }, [multiMode, payAmt, openInvoicesKey, jobProp?.id, activeJob?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -616,9 +679,6 @@ export function MarkPaidSheet({
   useEffect(() => {
     if (!isProcessIntent) setAchAuthChecked(false);
   }, [isProcessIntent]);
-
-  const inv = job?.invoiceNo || "";
-  const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const achAuthLetter = useMemo(
     () =>
       buildAchAuthLetter({
@@ -640,6 +700,22 @@ export function MarkPaidSheet({
   const processing = formLocked;
 
   const validateManual = () => {
+    if (multiMode) {
+      if (!customerNameForPay) {
+        showToast("Pick a customer first");
+        return false;
+      }
+      if (alreadyPaid) {
+        showToast(`Invoices already paid in ${product} — sync from QuickBooks first`);
+        return false;
+      }
+      const v = validatePaymentAllocations(openInvoices, allocs, payAmt);
+      if (!v.ok) {
+        showToast(v.error || "Fix invoice amounts");
+        return false;
+      }
+      return true;
+    }
     if (!job) {
       showToast("Pick a customer and invoice first");
       return false;
@@ -717,6 +793,172 @@ export function MarkPaidSheet({
     return 0;
   };
 
+  /** Persist one payment line on a job + optional QBO enqueue. Returns patch or null. */
+  const persistPaymentLine = (targetJob, entry, { train = false } = {}) => {
+    const live =
+      (targetJob?.id && effectiveJob?.(targetJob.id)) ||
+      (jobs || []).find((j) => String(j.id) === String(targetJob?.id)) ||
+      targetJob;
+    if (!live?.id) return null;
+    const dup = findDuplicatePayment(live, entry);
+    if (dup) return { dup, live };
+    if (train) trainFromRecord(live);
+    const withStamp = {
+      ...entry,
+      id: entry.id || paymentId(),
+      recordedAt: entry.recordedAt || new Date().toISOString(),
+    };
+    const patch = appendPayment(live, withStamp);
+    const remaining = parseFloat(String(patch.openBalance)) || 0;
+    const payAmtN = parseAmount(withStamp.amount);
+    const payList = Array.isArray(patch.payments) ? patch.payments : [];
+    const lastPay = payList[payList.length - 1] || withStamp;
+    const saveFn = typeof patchAndSave === "function" ? patchAndSave : null;
+    if (saveFn) {
+      void saveFn(live.id, patch).catch(() => {
+        patchJob(live.id, patch);
+      });
+    } else {
+      patchJob(live.id, patch);
+    }
+    if (isQuickbooksEnabled(tenantCfg) && live.invoiceNo && typeof enqueue === "function" && payAmtN > 0) {
+      const idem = [
+        "record_payment",
+        live.id,
+        live.invoiceNo || "",
+        lastPay.id || withStamp.id || "",
+        payAmtN,
+        withStamp.date || "",
+        withStamp.ref || "",
+      ].join(":");
+      void enqueue(
+        "record_payment",
+        live.id,
+        {
+          invoiceNo: live.invoiceNo,
+          amount: payAmtN,
+          method: withStamp.method || "",
+          ref: withStamp.ref || "",
+          date: withStamp.date || todayStr(),
+          note: withStamp.note || "",
+          depositTo: withStamp.depositTo || "",
+          email: live.email || "",
+          sendReceipt: false,
+          openBalance: remaining,
+          paymentGroupId: withStamp.paymentGroupId || "",
+        },
+        "deterministic",
+        idem
+      );
+    }
+    return { live, patch, remaining, payAmtN, lastPay, withStamp };
+  };
+
+  const stageMultiPayments = (lines, baseEntry) => {
+    if (recordLockRef.current) return;
+    if (!lines?.length) return;
+    recordLockRef.current = true;
+    const groupId = paymentGroupId();
+    const trained = trainFromRecord(lines[0].job);
+    const trainNote = trained ? " · Your fixes train the check reader" : "";
+    const results = [];
+    for (const line of lines) {
+      const r = persistPaymentLine(
+        line.job,
+        {
+          ...baseEntry,
+          amount: line.amount,
+          paymentGroupId: groupId,
+        },
+        { train: false }
+      );
+      if (r?.dup) {
+        showToast(
+          "That payment is already on invoice #" +
+            (r.live?.invoiceNo || "") +
+            " (" +
+            fmt$(parseAmount(r.dup.amount)) +
+            "). Not recorded again."
+        );
+        recordLockRef.current = false;
+        return;
+      }
+      if (r?.live) results.push(r);
+    }
+    if (!results.length) {
+      recordLockRef.current = false;
+      showToast("Could not record payment");
+      return;
+    }
+    const totalN = money2(results.reduce((s, r) => s + (r.payAmtN || 0), 0));
+    const invLabel = results
+      .map((r) => "#" + (r.live.invoiceNo || "?"))
+      .join(" + ");
+    const email = String(results[0].live.email || "").trim();
+    if (email && totalN > 0) {
+      const body = {
+        jobId: results[0].live.id,
+        invoiceNo: results.map((r) => r.live.invoiceNo).filter(Boolean).join(", "),
+        amount: totalN,
+        amountApplied: totalN,
+        totalCharged: totalN,
+        balance: results.reduce((s, r) => s + (r.remaining || 0), 0),
+        isDeposit: results.some((r) => (r.remaining || 0) > 0.01),
+        ref: String(baseEntry.ref || "").trim(),
+        payDate: String(baseEntry.date || todayStr()).slice(0, 10),
+        force: true,
+      };
+      fetch(functionsBase() + "/payment-confirm-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then((r) => r.json().catch(() => ({})))
+        .then((res) => {
+          if (res?.sent || res?.ok) {
+            showToast(
+              "Split " +
+                fmt$(totalN) +
+                " across " +
+                results.length +
+                " invoices (" +
+                invLabel +
+                ") · receipt emailed" +
+                trainNote
+            );
+          } else {
+            showToast(
+              "Split " +
+                fmt$(totalN) +
+                " across " +
+                results.length +
+                " invoices (" +
+                invLabel +
+                ")" +
+                trainNote
+            );
+          }
+        })
+        .catch(() => {
+          showToast(
+            "Split " + fmt$(totalN) + " across " + results.length + " invoices" + trainNote
+          );
+        });
+    } else {
+      showToast(
+        "Split " +
+          fmt$(totalN) +
+          " across " +
+          results.length +
+          " invoices (" +
+          invLabel +
+          ")" +
+          trainNote
+      );
+    }
+    onClose();
+  };
+
   const stagePaymentOnJob = (targetJob, entry) => {
     if (recordLockRef.current) return;
     // Always stage against the latest job + any already-staged payments.
@@ -742,24 +984,16 @@ export function MarkPaidSheet({
       ...entry,
       recordedAt: entry.recordedAt || new Date().toISOString(),
     };
-    const patch = appendPayment(live, withStamp);
-    const remaining = parseFloat(String(patch.openBalance)) || 0;
+    const staged = persistPaymentLine(live, withStamp, { train: false });
+    if (!staged || staged.dup) {
+      recordLockRef.current = false;
+      return;
+    }
+    const { patch, remaining, payAmtN, lastPay } = staged;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
-    const payAmtN = parseAmount(withStamp.amount);
-    const payList = Array.isArray(patch.payments) ? patch.payments : [];
-    const lastPay = payList[payList.length - 1] || withStamp;
 
-    // Levi 2026-08-04: save immediately — no Save & Sync bar required for cash/Zelle/ACH record.
-    // Receipt goes out now; QBO record_payment is background-only when QuickBooks is on.
-    const saveFn = typeof patchAndSave === "function" ? patchAndSave : null;
-    const persist = saveFn
-      ? saveFn(live.id, patch).catch(() => {
-          patchJob(live.id, patch);
-        })
-      : Promise.resolve(patchJob(live.id, patch));
-
-    void persist.then(() => {
-      // LE Pro payment confirmation (not QuickBooks).
+    // LE Pro payment confirmation (not QuickBooks).
+    void Promise.resolve().then(() => {
       const email = String(live.email || "").trim();
       if (email && payAmtN > 0) {
         // Levi 2026-08-05: receipt shows applied-to-invoice vs total (with fee) + deposit wording.
@@ -826,38 +1060,7 @@ export function MarkPaidSheet({
             trainNote
         );
       }
-
-      // Optional background QuickBooks — only if sync feature is on.
-      if (isQuickbooksEnabled(tenantCfg) && live.invoiceNo && typeof enqueue === "function" && payAmtN > 0) {
-        const idem = [
-          "record_payment",
-          live.id,
-          live.invoiceNo || "",
-          lastPay.id || "",
-          payAmtN,
-          withStamp.date || "",
-          withStamp.ref || "",
-        ].join(":");
-        void enqueue(
-          "record_payment",
-          live.id,
-          {
-            invoiceNo: live.invoiceNo,
-            amount: payAmtN,
-            method: withStamp.method || "",
-            ref: withStamp.ref || "",
-            date: withStamp.date || todayStr(),
-            note: withStamp.note || "",
-            depositTo: withStamp.depositTo || "",
-            email: live.email || "",
-            // Host sends LE receipt; do not also fire QBO email (listener ignores this for QBO).
-            sendReceipt: false,
-            openBalance: remaining,
-          },
-          "deterministic",
-          idem
-        );
-      }
+      // QBO already enqueued in persistPaymentLine.
     });
 
     onClose();
@@ -868,8 +1071,7 @@ export function MarkPaidSheet({
     const proofName = proofFile?.name || "";
     const payRef = useRef || ref;
     const note = buildPaymentNote(payRef, proofName);
-    stagePaymentOnJob(targetJob, {
-      amount: useAmt ?? payAmt,
+    const base = {
       method: mth,
       ref: payRef,
       date: d,
@@ -879,6 +1081,21 @@ export function MarkPaidSheet({
       zelleProofName: isZelle ? proofName : undefined,
       paymentProofName: proofName || undefined,
       paymentAutofilled: Boolean(autofillDone),
+    };
+    // Multi-invoice: total is the check/Zelle amount; split from current allocations.
+    if (multiMode) {
+      const total = useAmt != null ? parseAmount(useAmt) : payAmt;
+      const v = validatePaymentAllocations(openInvoices, allocs, total);
+      if (!v.ok) {
+        showToast(v.error || "Fix invoice amounts");
+        return;
+      }
+      stageMultiPayments(v.lines, base);
+      return;
+    }
+    stagePaymentOnJob(targetJob, {
+      amount: useAmt ?? payAmt,
+      ...base,
     });
   };
 
@@ -886,8 +1103,7 @@ export function MarkPaidSheet({
     if (!validateManual()) return;
     const d = dt || todayStr();
     const note = buildPaymentNote(ref, proofFile?.name || "");
-    stagePaymentOnJob(job, {
-      amount: payAmt,
+    const base = {
       method: mth,
       ref,
       date: d,
@@ -897,6 +1113,19 @@ export function MarkPaidSheet({
       zelleProofName: isZelle ? proofFile?.name || "" : undefined,
       paymentProofName: proofFile?.name || undefined,
       paymentAutofilled: Boolean(autofillDone),
+    };
+    if (multiMode) {
+      const v = validatePaymentAllocations(openInvoices, allocs, payAmt);
+      if (!v.ok) {
+        showToast(v.error || "Fix invoice amounts");
+        return;
+      }
+      stageMultiPayments(v.lines, base);
+      return;
+    }
+    stagePaymentOnJob(job, {
+      amount: payAmt,
+      ...base,
     });
   };
 
@@ -1435,7 +1664,7 @@ export function MarkPaidSheet({
               setCustDraft(c.name || c.businessName || "");
             }}
           />
-          {pickCust && openInvoices.length > 1 ? (
+          {pickCust && multiMode ? null : pickCust && openInvoices.length > 1 ? (
             <Fld label="Invoice" hint="Each line shows the service address">
               <select
                 className="input"
@@ -1456,7 +1685,7 @@ export function MarkPaidSheet({
               </select>
             </Fld>
           ) : null}
-          {pickCust && openInvoices.length === 1 && activeJob ? (
+          {pickCust && !multiMode && openInvoices.length === 1 && activeJob ? (
             <p className="text-[12px] text-slate-500 mb-2">
               {formatInvoicePayOption(activeJob)}
             </p>
@@ -1479,6 +1708,23 @@ export function MarkPaidSheet({
             </button>
           ) : null}
         </>
+      ) : multiMode ? (
+        <div className="mb-2">
+          <Fld label="Customer">
+            <div className="input bg-slate-50 text-slate-800 font-medium flex items-start justify-between gap-2">
+              <div data-testid="payment-toward-customer">{job?.customer || customerNameForPay}</div>
+              <button
+                type="button"
+                className="btn bg-white border border-slate-200 text-slate-800 !px-2 !py-1 text-xs shrink-0"
+                onClick={() => setReassign(true)}
+                data-testid="payment-change-target"
+                aria-label="Change customer or invoice"
+              >
+                ✏️ Edit
+              </button>
+            </div>
+          </Fld>
+        </div>
       ) : (
         <div className="mb-2">
           <Fld label="Paying towards">
@@ -1504,7 +1750,7 @@ export function MarkPaidSheet({
           </Fld>
         </div>
       )}
-      {job && alreadyPaid ? (
+      {job && alreadyPaid && !multiMode ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
           <p className="mt-1 text-amber-800">
@@ -1515,19 +1761,29 @@ export function MarkPaidSheet({
             Sync from QuickBooks
           </button>
         </div>
+      ) : multiMode ? (
+        <p className="text-[12px] text-slate-500 mb-2">
+          Open total:{" "}
+          <span className="font-semibold text-slate-700">
+            {fmt$(openInvoices.reduce((s, j) => s + openBalance(j), 0))}
+          </span>
+          <span> · {openInvoices.length} open invoices</span>
+        </p>
       ) : job ? (
         <p className="text-[12px] text-slate-500 mb-2">
           Open balance: <span className="font-semibold text-slate-700">{fmt$(due)}</span>
           {job.invoiceNo ? <span> · Invoice #{job.invoiceNo}</span> : null}
         </p>
       ) : null}
-      <Fld label="Amount" hint="Recommended">
+      <Fld label="Amount" hint={multiMode ? "Payment total (split below)" : "Recommended"}>
         <input
           className="input"
           inputMode="decimal"
           value={amt}
           onChange={(e) => {
             visionAmountLockedRef.current = false;
+            // New total → re-auto-split across invoices.
+            allocsManualRef.current = false;
             setAmt(e.target.value);
           }}
           onBlur={() => {
@@ -1536,9 +1792,123 @@ export function MarkPaidSheet({
           aria-label="Amount"
           data-testid="payment-amount"
           placeholder="$0.00"
-          disabled={alreadyPaid || !job}
+          disabled={alreadyPaid || (!job && !multiMode && !pickCust)}
         />
       </Fld>
+      {multiMode ? (
+        <div className="mb-3 rounded-xl border border-brand/25 bg-brand-soft/20 px-3 py-2.5" data-testid="payment-multi-apply">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
+              Apply to invoices
+            </div>
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-brand"
+              data-testid="payment-auto-split"
+              onClick={() => {
+                allocsManualRef.current = false;
+                const next = autoAllocatePayment(openInvoices, payAmt, {
+                  preferJobId: jobProp?.id || activeJob?.id || "",
+                });
+                const asFields = {};
+                for (const j of openInvoices) {
+                  const n = money2(next[j.id] || 0);
+                  asFields[j.id] = n > 0.009 ? fmtAmountField(n) : "";
+                }
+                setAllocs(asFields);
+              }}
+            >
+              Auto-split
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-600 mb-2">
+            Choose invoices and how much of this payment each gets. Amounts must add up to the total.
+          </p>
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {openInvoices.map((j) => {
+              const dueJ = openBalance(j);
+              const checked = parseAmount(allocs[j.id]) > 0.009;
+              return (
+                <div
+                  key={j.id}
+                  className={
+                    "rounded-lg border px-2.5 py-2 " +
+                    (checked ? "border-brand bg-white" : "border-slate-200 bg-slate-50/80")
+                  }
+                  data-testid={"payment-alloc-row-" + (j.invoiceNo || j.id)}
+                >
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      data-testid={"payment-alloc-check-" + (j.invoiceNo || j.id)}
+                      onChange={(e) => {
+                        allocsManualRef.current = true;
+                        if (!e.target.checked) {
+                          setAllocs((prev) => ({ ...prev, [j.id]: "" }));
+                          return;
+                        }
+                        const rem = money2(
+                          payAmt -
+                            sumAllocations({
+                              ...allocs,
+                              [j.id]: 0,
+                            })
+                        );
+                        const apply = money2(Math.min(dueJ, Math.max(rem, 0)));
+                        setAllocs((prev) => ({
+                          ...prev,
+                          [j.id]: apply > 0.009 ? fmtAmountField(apply) : fmtAmountField(dueJ),
+                        }));
+                      }}
+                    />
+                    <span className="text-[11px] text-slate-700 break-words flex-1 min-w-0">
+                      {formatInvoiceApplyLine(j)}
+                    </span>
+                  </label>
+                  <div className="mt-1.5 pl-6">
+                    <input
+                      className="input !py-1.5 text-sm"
+                      inputMode="decimal"
+                      placeholder="$0.00"
+                      value={allocs[j.id] || ""}
+                      aria-label={"Apply to invoice " + (j.invoiceNo || "")}
+                      data-testid={"payment-alloc-amt-" + (j.invoiceNo || j.id)}
+                      onChange={(e) => {
+                        allocsManualRef.current = true;
+                        setAllocs((prev) => ({ ...prev, [j.id]: e.target.value }));
+                      }}
+                      onBlur={() => {
+                        const n = parseAmount(allocs[j.id]);
+                        if (n > 0) {
+                          setAllocs((prev) => ({ ...prev, [j.id]: fmtAmountField(n) }));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p
+            className={
+              "text-[12px] mt-2 font-medium " +
+              (Math.abs(unallocated) <= 0.011
+                ? "text-emerald-700"
+                : "text-amber-800")
+            }
+            data-testid="payment-alloc-summary"
+          >
+            Applied {fmt$(appliedSum) || "$0"} of {fmt$(payAmt) || "$0"}
+            {Math.abs(unallocated) > 0.011
+              ? unallocated > 0
+                ? " · " + (fmt$(unallocated) || "") + " left to assign"
+                : " · over by " + (fmt$(Math.abs(unallocated)) || "")
+              : " · balanced"}
+          </p>
+        </div>
+      ) : null}
       <Fld label="Payment method" hint="Recommended">
         <select
           className="input"
@@ -2107,7 +2477,13 @@ export function MarkPaidSheet({
         <button
           className="btn bg-emerald-500 text-white w-full"
           onClick={onRecordPayment}
-          disabled={alreadyPaid || processing || !job}
+          disabled={
+            alreadyPaid ||
+            processing ||
+            (multiMode
+              ? !customerNameForPay || payAmt <= 0 || Math.abs(unallocated) > 0.011
+              : !job)
+          }
           data-testid={isAch ? "record-ach-payment" : "record-payment"}
         >
           {visionAnalyzing
