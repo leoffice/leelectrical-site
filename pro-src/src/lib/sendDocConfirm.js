@@ -5,6 +5,7 @@ import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
 import { activeTenantConfig, productName } from "./tenantBranding.js";
 import { isChangeOrderJob } from "./changeOrder.js";
 import { normalizeEmail } from "./customers.js";
+import { CONED_REFUND_INSTRUCTIONS, jobHasPartialService } from "./partialService.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
@@ -201,6 +202,11 @@ export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } 
     } else {
       lines.push(`Your ${label}${num} is ready.`, "");
     }
+  }
+  // Partial-service (temporary bridge) invoice → Con Ed refund instructions,
+  // prominently near the top. EMAIL ONLY — this never prints on the PDF.
+  if (kind === "invoice" && jobHasPartialService(job)) {
+    lines.push(CONED_REFUND_INSTRUCTIONS, "");
   }
   lines.push(
     "The PDF is attached.",

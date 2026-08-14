@@ -414,6 +414,71 @@ export function hydrateEstimateGeneratorFeesFromCloud(cloudFees) {
   return getEstimateGeneratorFees();
 }
 
+/**
+ * Checkmaker — saved funding accounts a check can be drawn from.
+ * Device cache + cloud (settings profile.checkmakerAccounts) so phone ↔ computer stay linked.
+ * Each account: { id, label, name, addr1, addr2, phone, bank, account, routing, fractional, startCheckNo }.
+ */
+export const CHECKMAKER_ACCOUNTS_KEY = "lepro_checkmaker_accounts";
+
+/** Seed preset: BLZ Electric's own Chase account (prints on every check they issue). */
+export function defaultCheckmakerAccounts() {
+  return [
+    {
+      id: "blz-chase",
+      label: "BLZ Electric — Chase",
+      name: "BLZ Electric Inc.",
+      addr1: "1243 E 15th Street",
+      addr2: "Brooklyn, NY 11230",
+      phone: "(718) 594-1850",
+      bank: "JPMorgan Chase Bank, N.A.",
+      account: "606031220",
+      routing: "021000021",
+      fractional: "1-12/210",
+      startCheckNo: "1001",
+    },
+  ];
+}
+
+export function getCheckmakerAccounts() {
+  try {
+    const ls = storage();
+    if (!ls) return defaultCheckmakerAccounts();
+    const raw = ls.getItem(CHECKMAKER_ACCOUNTS_KEY);
+    if (!raw) return defaultCheckmakerAccounts();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : defaultCheckmakerAccounts();
+  } catch {
+    return defaultCheckmakerAccounts();
+  }
+}
+
+export function setCheckmakerAccounts(list) {
+  try {
+    const ls = storage();
+    if (!ls) return getCheckmakerAccounts();
+    ls.setItem(CHECKMAKER_ACCOUNTS_KEY, JSON.stringify(Array.isArray(list) ? list : []));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getCheckmakerAccounts();
+}
+
+/** Replace local checkmaker accounts from cloud settings (phone ↔ computer link). */
+export function hydrateCheckmakerAccountsFromCloud(cloudList) {
+  if (!Array.isArray(cloudList) || !cloudList.length) return getCheckmakerAccounts();
+  try {
+    const ls = storage();
+    if (!ls) return getCheckmakerAccounts();
+    ls.setItem(CHECKMAKER_ACCOUNTS_KEY, JSON.stringify(cloudList));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getCheckmakerAccounts();
+}
+
 export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
@@ -427,6 +492,7 @@ export function readAppSettings() {
     assistantSpeak: isAssistantSpeakEnabled(),
     assistantVoice: getAssistantVoiceId(),
     estimateGeneratorFees: getEstimateGeneratorFees(),
+    checkmakerAccounts: getCheckmakerAccounts(),
   };
 }
 
