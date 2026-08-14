@@ -209,4 +209,48 @@ describe("customerTransactions", () => {
     const invRows = buildCustomerTransactions(twins, { filter: "invoices" });
     expect(invRows.filter((r) => r.docNo === "251850")).toHaveLength(1);
   });
+
+  // Levi 2026-08-14 — Meir Kabakov: $288k paid shown on card, Payments filter empty.
+  // Root: QBO openBalance/paid with no local payments[] ledger.
+  it("infers payment rows from openBalance when ledger is empty", () => {
+    const paidNoLedger = [
+      {
+        id: "qbo-paid",
+        customer: "Meir Kabakov",
+        invoiceNo: "212074",
+        invoiceDate: "2024-03-01",
+        amount: "10000",
+        openBalance: 0,
+        paid: true,
+        serviceAddress: "1332 lincoln pl",
+      },
+      {
+        id: "qbo-partial",
+        customer: "Meir Kabakov",
+        invoiceNo: "231418",
+        invoiceDate: "2025-06-01",
+        amount: "66600",
+        openBalance: 32100,
+        paid: false,
+        paymentBaseline: 66600,
+        serviceAddress: "1332 lincoln pl",
+      },
+    ];
+    const pays = buildCustomerTransactions(paidNoLedger, { filter: "payments" });
+    expect(pays.length).toBe(2);
+    const full = pays.find((r) => r.docNo === "212074");
+    const part = pays.find((r) => r.docNo === "231418");
+    expect(full.inferred).toBe(true);
+    expect(Number(full.amount)).toBe(10000);
+    expect(full.method).toMatch(/QuickBooks/i);
+    expect(part.inferred).toBe(true);
+    expect(Number(part.amount)).toBe(34500);
+  });
+
+  it("does not double-count when ledger already covers amountPaid", () => {
+    const pays = buildCustomerTransactions(jobs, { filter: "payments" });
+    // Still exactly the two real ledger rows from fixture (no inferred extras)
+    expect(pays).toHaveLength(2);
+    expect(pays.every((r) => !r.inferred)).toBe(true);
+  });
 });

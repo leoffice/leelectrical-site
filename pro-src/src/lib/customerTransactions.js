@@ -1,7 +1,12 @@
 // Customer-level transaction ledger — invoices, estimates, payments across
 // all job addresses for one company (not sub-companies).
-import { openBalance, invoiceTotal, dedupeJobsByInvoiceNo } from "./customers.js";
-import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./payments.js";
+import { openBalance, invoiceTotal, amountPaid, dedupeJobsByInvoiceNo } from "./customers.js";
+import {
+  normalizePayments,
+  normalizePaymentMethod,
+  fmtPaymentDate,
+  totalPaid,
+} from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 import {
@@ -374,6 +379,51 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         // Suggestion filled later for customer-level lists (needs all jobs).
         applySuggestion: null,
       });
+    }
+
+    // QBO/sync often marks openBalance/paid without a local payment ledger.
+    // Customer header shows "$X paid" from amountPaid(), but Payments filter
+    // was empty — surface the missing paid amount as a balance-derived row.
+    if (j.invoiceNo) {
+      const realPays = normalizePayments(j);
+      const paidAmt = amountPaid(j);
+      const ledgerSum = totalPaid(realPays);
+      const gap = Math.round((paidAmt - ledgerSum) * 100) / 100;
+      if (gap > 0.01) {
+        const dateRaw =
+          normalizeSortDate(j.status?.Paid?.d) ||
+          normalizeSortDate(j.invoiceDate) ||
+          invoiceSortDate(j) ||
+          "";
+        const p = {
+          id: "inferred-bal-" + j.id,
+          amount: gap,
+          method: "QuickBooks",
+          date: dateRaw,
+          note: "From invoice balance (payment lines not synced yet)",
+          _inferred: true,
+        };
+        rows.push({
+          id: "pay:" + j.id + ":inferred-bal",
+          kind: "payment",
+          sortDate: String(dateRaw || ""),
+          jobId: j.id,
+          job: j,
+          customer,
+          payment: p,
+          amount: gap,
+          method: "QuickBooks",
+          docNo: String(j.invoiceNo),
+          address,
+          dateLabel: shortTxnDate(dateRaw),
+          whenLabel: relativeTxnWhen(dateRaw, new Date(), dateRaw),
+          legacyWeb: isLegacyWebDoc(j.invoiceNo),
+          color: familyColor,
+          unlinked: false,
+          inferred: true,
+          applySuggestion: null,
+        });
+      }
     }
   }
 
