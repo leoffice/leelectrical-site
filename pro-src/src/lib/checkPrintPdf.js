@@ -297,15 +297,21 @@ export function buildCheckPdf({
     }
   }
 
-  // check rectangle (8.0" x 3.5", top of the letter page)
-  const L = 0.25 * IN;
-  const R = 8.25 * IN;
-  const CT = 0.35 * IN; // check top edge (from page top)
-  const CB = CT + 3.5 * IN; // check bottom edge
+  // Standard US business check: 8.0" × 3.5" on letter page (8.5" × 11").
+  // Centered horizontally AND vertically so top and bottom margins match
+  // (Levi 2026-08-14 — clear edge, not stuck at the top of the sheet).
+  const CHECK_W = 8.0 * IN;
+  const CHECK_H = 3.5 * IN;
+  const L = (PAGE_W - CHECK_W) / 2; // 0.25"
+  const R = L + CHECK_W;
+  const CT = (PAGE_H - CHECK_H) / 2; // equal top/bottom white space
+  const CB = CT + CHECK_H;
   const cx = (L + R) / 2;
 
-  // border + subtle generic microprint frame (not Chase artwork)
-  pg.strokeRect(L, CT, R - L, CB - CT, GREY, 1.2);
+  // Black border so the check edge is obvious when printing (no black fill
+  // outside the check — only the outline).
+  pg.strokeRect(L, CT, CHECK_W, CHECK_H, BLACK, 1.6);
+  // Inner microprint frame stays soft grey (security look, not a second heavy border)
   const micro = "BLZ ELECTRIC INC  ORIGINAL DOCUMENT  ".repeat(6);
   pg.text(L + 3, CT + 8, micro.slice(0, 96), { size: 2.6, color: [0.72, 0.72, 0.76] });
   pg.text(L + 3, CB - 4, micro.slice(0, 96), { size: 2.6, color: [0.72, 0.72, 0.76] });
