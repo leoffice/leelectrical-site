@@ -132,6 +132,22 @@ describe("progressBilling", () => {
     expect(out.some((ln) => /removal/i.test(ln.itemName || ""))).toBe(false);
   });
 
+  it("normalizeProgressInvoiceLines keeps full-face invoice rates (no estimate rewrite)", () => {
+    const est = [
+      { itemName: "Installation:Installation", qty: 1, unitPrice: 32000 },
+      { itemName: "Installation:Installation", qty: 1, unitPrice: 8000 },
+      { itemName: "Tesla Charger:Filing permit:Filing permit", qty: 1, unitPrice: 2800 },
+    ];
+    const inv = [
+      { itemName: "Installation:Installation", qty: 1, unitPrice: 40000, amount: 40000 },
+      { itemName: "Tesla Charger:Filing permit:Filing permit", qty: 1, unitPrice: 2700, amount: 2700 },
+    ];
+    const out = normalizeProgressInvoiceLines(inv, 42700, est);
+    expect(out).toHaveLength(2);
+    expect(out[0].unitPrice).toBe(40000);
+    expect(out[1].unitPrice).toBe(2700);
+  });
+
   it("applyProgressPctToLines never grows line count from estimate template", async () => {
     const { applyProgressPctToLines } = await import("../src/lib/progressBilling.js");
     const est = [

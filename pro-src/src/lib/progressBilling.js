@@ -179,10 +179,26 @@ export function normalizeProgressInvoiceLines(lines, contractTotal, estimateLine
   const rows = (lines || []).map((ln) => ({ ...emptyLine(), ...ln }));
   if (!rows.length) return rows;
 
+  // Full-face invoice: qty≈1, no progress flags, billed ≈ contract (or no contract).
+  // Keep lines exactly as saved — do not rebuild from estimate base rates.
+  // Seewald #231595: Edit rewrote $40k+$2.7k → $32k+$2.8k from estimate (Levi 2026-08-14).
+  // Still allow the "partial rate × qty=1 → full rate × fraction" heal below when
+  // billed is clearly under the contract (classic QBO import).
+  const billedNow = linesTotal(rows);
+  const looksFullFace =
+    rows.every((ln) => {
+      const q = parseAmount(ln.qty);
+      return q >= 0.999 && !ln.progressBilling && !isFractionalProgressQty(q);
+    }) &&
+    (contract <= 0 || billedNow >= contract * 0.98);
+  if (looksFullFace) {
+    return rows.map((ln) => ({ ...ln, unitPrice: lineUnitPrice(ln) || ln.unitPrice }));
+  }
+
   // Prefer estimate template when billed total is a partial of the contract —
   // but only rebuild from estimate lines the invoice still carries.
   if (estimateLines?.length && contract > 0) {
-    const billed = linesTotal(rows);
+    const billed = billedNow;
     if (billed > 0 && billed < contract * 0.999) {
       const invKeys = rows.map(lineItemKey);
       const estKeys = estimateLines.map(lineItemKey);
