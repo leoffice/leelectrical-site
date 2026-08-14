@@ -988,8 +988,7 @@ export default function Settings() {
           <p className="text-xs text-slate-500 font-semibold mb-3">
             Generates a print-ready PDF of the check front on BLZ&apos;s own Chase
             account ({BLZ_CHECK.bank}) with the E-13B MICR line. The written amount
-            is spelled automatically. The signature line is left blank — print it and
-            sign by hand.
+            is spelled automatically. Your authorized signature is applied automatically.
           </p>
           <Fld label="Pay to the order of">
             <input
@@ -1065,7 +1064,7 @@ export default function Settings() {
                 });
                 const fname = `BLZ_Check_${(chk.checkNo || "").trim() || BLZ_CHECK.startCheckNo}.pdf`;
                 openPdfForNativeView({ blob, filename: fname });
-                showToast?.("Check PDF generated — print and sign by hand");
+                showToast?.("Check PDF generated — signature included, ready to print");
               } catch (e) {
                 showToast?.("Could not generate check: " + String(e?.message || e));
               }

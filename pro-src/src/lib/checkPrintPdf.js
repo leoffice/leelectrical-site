@@ -5,14 +5,15 @@
 // Guardrails (match the standalone generator + skill):
 //   * Generic professional design — the drawee bank is stated factually as text
 //     ("JPMorgan Chase Bank, N.A."); NO Chase logo, wordmark, or artwork.
-//   * NEVER draws a signature — the signature line is always left blank for a
-//     human to sign by hand.
+//   * Signature is auto-embedded by default (Levi's LE signature JPEG).
+//     Pass { signed: false } for a blank signature line (hand-sign).
 //   * Front of the check only — no deposit/endorsement back page.
 //   * BLZ's own account only (flagship/internal tenant gates the UI).
 //
 // The bottom MICR line is drawn in genuine E-13B glyph geometry (vector rects)
 // at the correct 0.130" pitch band — not a monospace substitute.
 import { ADVANCE, BODY_HEIGHT, GLYPHS, micrLine } from "./e13bGlyphs.js";
+import { leSignatureImage } from "./leSignatureJpeg.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -131,12 +132,17 @@ function Page() {
       const y = PAGE_H - topY;
       ops.push(`${r2(color[0])} ${r2(color[1])} ${r2(color[2])} RG ${r2(width)} w ${r2(x1)} ${r2(y)} m ${r2(x2)} ${r2(y)} l S`);
     },
+    // topY is from page top (same as text/fillRect). Draws named XObject.
+    image(name, x, topY, w, h) {
+      ops.push(`q ${r2(w)} 0 0 ${r2(h)} ${r2(x)} ${r2(PAGE_H - topY - h)} cm /${name} Do Q`);
+    },
     stream: () => ops.join("\n"),
   };
   return api;
 }
 
-function assemblePdf(page) {
+function assemblePdf(page, images) {
+  const imgs = (images || []).filter((im) => im && im.bytes && im.bytes.length && im.name);
   const chunks = [];
   const xref = [];
   let offset = 0;
@@ -152,17 +158,29 @@ function assemblePdf(page) {
   push("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
 
   const stream = page.stream();
+  const xobjEntries = imgs.map((im, i) => `/${im.name} ${7 + i} 0 R`).join(" ");
+  const xobjs = imgs.length ? ` /XObject << ${xobjEntries} >>` : "";
   obj(1, "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
   obj(2, "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
   obj(
     3,
-    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj\n`
+    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${xobjs} >> >> endobj\n`
   );
   obj(4, `4 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj\n`);
   obj(5, "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n");
   obj(6, "6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n");
 
-  const maxId = 6;
+  imgs.forEach((im, i) => {
+    const id = 7 + i;
+    obj(
+      id,
+      `${id} 0 obj << /Type /XObject /Subtype /Image /Width ${im.width} /Height ${im.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >> stream\n`
+    );
+    push(im.bytes);
+    push("\nendstream\nendobj\n");
+  });
+
+  const maxId = imgs.length ? 6 + imgs.length : 6;
   const xrefStart = offset;
   push(`xref\n0 ${maxId + 1}\n`);
   push("0000000000 65535 f \n");
@@ -201,7 +219,7 @@ function drawMicr(pg, text, xLeftPt, baselineTopY, pitchPt = 0.13 * IN) {
 
 // ── the check ───────────────────────────────────────────────────────────────
 /**
- * Build a print-ready BLZ business-check PDF (front only, unsigned).
+ * Build a print-ready BLZ business-check PDF (front only).
  * @param {object} o
  * @param {string} [o.payee]  pay-to-the-order-of name
  * @param {number|string} [o.amount]  numeric dollars (e.g. 397.50)
@@ -209,13 +227,36 @@ function drawMicr(pg, text, xLeftPt, baselineTopY, pitchPt = 0.13 * IN) {
  * @param {number|string} [o.checkNo]  check number
  * @param {string} [o.memo]
  * @param {boolean} [o.sample]  overlay a faint non-negotiable SAMPLE mark
+ * @param {boolean} [o.signed=true]  embed Levi's signature above the line
+ * @param {object} [o.signatureImage]  optional PDF image {name,width,height,bytes}; defaults to LE signature
  * @param {object} [o.config]  override BLZ_CHECK fields
  * @returns {Uint8Array} PDF bytes
  */
-export function buildCheckPdf({ payee = "", amount = null, date = "", checkNo, memo = "", sample = false, config } = {}) {
+export function buildCheckPdf({
+  payee = "",
+  amount = null,
+  date = "",
+  checkNo,
+  memo = "",
+  sample = false,
+  signed = true,
+  signatureImage,
+  config,
+} = {}) {
   const cfg = { ...BLZ_CHECK, ...(config || {}) };
   const chkNo = String(checkNo != null && checkNo !== "" ? checkNo : cfg.startCheckNo);
   const pg = Page();
+  const images = [];
+  let sigImage = null;
+  if (signed !== false) {
+    try {
+      sigImage = signatureImage && signatureImage.bytes ? signatureImage : leSignatureImage();
+      if (sigImage?.bytes?.length) images.push(sigImage);
+      else sigImage = null;
+    } catch {
+      sigImage = null;
+    }
+  }
 
   // check rectangle (8.0" x 3.5", top of the letter page)
   const L = 0.25 * IN;
@@ -275,13 +316,29 @@ export function buildCheckPdf({ payee = "", amount = null, date = "", checkNo, m
   pg.rule(L + 14, R - 76, wordsY + 3, INK, 1.1);
   pg.text(R - 14, wordsY - 2, "DOLLARS", { size: 9, font: "F2", color: GREY, align: "right" });
 
-  // memo + (blank) signature
+  // memo + signature line (auto-signed by default)
   const sigY = CB - 68;
   pg.text(L + 14, sigY + 2, "MEMO", { size: 8, font: "F2", color: GREY });
   pg.rule(L + 54, L + 260, sigY + 4, INK, 0.9);
   if (memo) pg.text(L + 62, sigY - 1, String(memo), { size: 10, color: INK });
-  // signature line — ALWAYS blank (no signature is ever drawn)
-  pg.rule(R - 224, R - 14, sigY + 4, INK, 0.9);
+  // signature line + optional embedded signature image above it
+  const sigLineL = R - 224;
+  const sigLineR = R - 14;
+  pg.rule(sigLineL, sigLineR, sigY + 4, INK, 0.9);
+  if (sigImage) {
+    const maxW = 150;
+    const maxH = 42;
+    let w = maxW;
+    let h = (sigImage.height / sigImage.width) * w;
+    if (h > maxH) {
+      h = maxH;
+      w = (sigImage.width / sigImage.height) * h;
+    }
+    // Sit just above the signature rule, right-aligned into the signature box.
+    const sigX = sigLineR - w - 6;
+    const sigTop = sigY + 4 - h - 2;
+    pg.image(sigImage.name, sigX, sigTop, w, h);
+  }
   pg.text(R - 14, sigY + 18, "AUTHORIZED SIGNATURE", { size: 7.5, color: GREY, align: "right" });
 
   // optional faint non-negotiable SAMPLE mark (app generates real checks w/o it)
@@ -296,7 +353,7 @@ export function buildCheckPdf({ payee = "", amount = null, date = "", checkNo, m
 
   pg.text(L + 14, CB - 10, "Void after 90 days.  Security features on original.", { size: 6.5, color: FAINT });
 
-  return assemblePdf(pg);
+  return assemblePdf(pg, images);
 }
 
 /** Convenience: build a Blob for download/preview. */

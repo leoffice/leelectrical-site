@@ -60,11 +60,26 @@ describe("buildCheckPdf", () => {
     expect(text).toContain("397.50");
   });
 
-  it("labels a blank signature line and never embeds an image/signature", () => {
+  it("labels the signature line and embeds Levi's signature by default", () => {
     expect(text).toContain("AUTHORIZED SIGNATURE");
-    // Front-only, text-only check: no image XObjects of any kind are embedded.
-    expect(text.includes("/Subtype /Image")).toBe(false);
-    expect(text.includes("/XObject")).toBe(false);
+    // Default is auto-signed: JPEG signature XObject is present.
+    expect(text.includes("/Subtype /Image")).toBe(true);
+    expect(text.includes("/XObject")).toBe(true);
+    expect(text.includes("/DCTDecode")).toBe(true);
+  });
+
+  it("can still print with a blank signature line when signed:false", () => {
+    const blank = bytesToLatin1(
+      buildCheckPdf({
+        payee: "Acme Supply LLC",
+        amount: 10,
+        date: "08/14/2026",
+        checkNo: "1002",
+        signed: false,
+      })
+    );
+    expect(blank).toContain("AUTHORIZED SIGNATURE");
+    expect(blank.includes("/Subtype /Image")).toBe(false);
   });
 
   it("does NOT reproduce a Chase logo/wordmark", () => {
