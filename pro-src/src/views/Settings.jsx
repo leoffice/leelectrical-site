@@ -36,6 +36,7 @@ import {
   useAppSettings,
 } from "../lib/appSettings.js";
 import { buildCheckPdfBlob, BLZ_CHECK } from "../lib/checkPrintPdf.js";
+import { openPdfForNativeView } from "../lib/pdfOpen.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import {
   applyCompanyLogoToActiveConfig,
