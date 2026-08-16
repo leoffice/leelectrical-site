@@ -3,6 +3,7 @@ import {
   amountToWords,
   buildCheckPdf,
   BLZ_CHECK,
+  isValidAbaRouting,
   normalizeCheckDate,
   todayCheckDate,
 } from "../src/lib/checkPrintPdf.js";
@@ -143,5 +144,53 @@ describe("buildCheckPdf — multi-account (config override)", () => {
   it("uses the account's starting check number when none is given", () => {
     // MICR check-number field is On-Us[ 500 ]On-Us via micrLine
     expect(micrLine(acct.routing, acct.account, "500")).toBe("O500O T021000021T 123456789O");
+  });
+
+  it("MICR renders a DIFFERENT routing + longer account correctly in the E-13B font", () => {
+    // Bank of America NY routing (valid ABA) + a 13-digit account number.
+    const other = {
+      ...acct,
+      name: "Third Venture LLC",
+      bank: "Bank of America, N.A.",
+      routing: "026009593",
+      account: "4411782299001",
+      startCheckNo: "7005",
+    };
+    const pdf = bytesToLatin1(
+      buildCheckPdf({ payee: "Vendor Inc", amount: 55, checkNo: "7005", config: other })
+    );
+    // Full MICR line in the embedded font's keys (A=transit, B=on-us) — every
+    // digit present, no clipping, symbols in the right places.
+    expect(pdf).toContain("(B7005B A026009593A 4411782299001B)");
+    expect(pdf).toContain("Third Venture LLC");
+    expect(pdf).toContain("Bank of America, N.A.");
+    expect(pdf).not.toContain("021000021");
+    expect(pdf).not.toContain("606031220");
+  });
+
+  it("MICR with a shorter account number keeps every digit and both on-us symbols", () => {
+    const pdf = bytesToLatin1(
+      buildCheckPdf({ payee: "X", amount: 1, checkNo: "88", config: { ...acct, account: "1234", routing: "011000015" } })
+    );
+    expect(pdf).toContain("(B88B A011000015A 1234B)");
+  });
+});
+
+describe("isValidAbaRouting", () => {
+  it("accepts real routing numbers (Chase NY, BofA, Fed)", () => {
+    expect(isValidAbaRouting("021000021")).toBe(true); // JPMorgan Chase NY
+    expect(isValidAbaRouting("026009593")).toBe(true); // Bank of America
+    expect(isValidAbaRouting("011000015")).toBe(true); // Federal Reserve Boston
+  });
+  it("rejects checksum failures and wrong lengths", () => {
+    expect(isValidAbaRouting("123456789")).toBe(false); // fails mod-10
+    expect(isValidAbaRouting("021000022")).toBe(false); // one-digit typo
+    expect(isValidAbaRouting("02100002")).toBe(false); // 8 digits
+    expect(isValidAbaRouting("0210000211")).toBe(false); // 10 digits
+    expect(isValidAbaRouting("")).toBe(false);
+    expect(isValidAbaRouting(null)).toBe(false);
+  });
+  it("strips separators before judging", () => {
+    expect(isValidAbaRouting("021-000-021")).toBe(true);
   });
 });

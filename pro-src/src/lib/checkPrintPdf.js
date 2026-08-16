@@ -244,6 +244,20 @@ function assemblePdf(page, images) {
   return out;
 }
 
+/**
+ * ABA routing-number sanity check: exactly 9 digits AND the standard checksum
+ * 3(d1+d4+d7) + 7(d2+d5+d8) + (d3+d6+d9) ≡ 0 (mod 10). Every real US routing
+ * number passes; a typo almost always fails. Callers should WARN (not block)
+ * so an unusual-but-intended number can still print.
+ */
+export function isValidAbaRouting(routing) {
+  const d = String(routing == null ? "" : routing).replace(/\D/g, "");
+  if (!/^\d{9}$/.test(d)) return false;
+  const n = [...d].map(Number);
+  const sum = 3 * (n[0] + n[3] + n[6]) + 7 * (n[1] + n[4] + n[7]) + (n[2] + n[5] + n[8]);
+  return sum % 10 === 0;
+}
+
 /** Today's date as MM/DD/YYYY (local timezone). */
 export function todayCheckDate(now = new Date()) {
   const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -345,8 +359,9 @@ export function buildCheckPdf({
   // Black border so the check edge is obvious when printing (no black fill
   // outside the check — only the outline).
   pg.strokeRect(L, CT, CHECK_W, CHECK_H, BLACK, 1.6);
-  // Inner microprint frame stays soft grey (security look, not a second heavy border)
-  const micro = "BLZ ELECTRIC INC  ORIGINAL DOCUMENT  ".repeat(6);
+  // Inner microprint frame stays soft grey (security look, not a second heavy
+  // border). Names the drawing account, not BLZ, so any funding account is correct.
+  const micro = ((cfg.name || BLZ_CHECK.name).toUpperCase() + "  ORIGINAL DOCUMENT  ").repeat(6);
   pg.text(L + 3, CT + 8, micro.slice(0, 96), { size: 2.6, color: [0.72, 0.72, 0.76] });
   pg.text(L + 3, CB - 4, micro.slice(0, 96), { size: 2.6, color: [0.72, 0.72, 0.76] });
 
@@ -430,7 +445,9 @@ export function buildCheckPdf({
   // account (change/save-safe).
   const micr = micrLine(cfg.routing, cfg.account, chkNo);
   const micrW = toMicrGlyphs(micr).length * MICR_ADV_PT;
-  pg.micrText(cx - micrW / 2, CB - 0.34 * IN, micr);
+  // Centered, but never past the left edge: a long account number + check
+  // number stays fully on the check at the fixed 0.130" E-13B pitch.
+  pg.micrText(Math.max(L + 16, cx - micrW / 2), CB - 0.34 * IN, micr);
 
   pg.text(L + 14, CB - 10, "Void after 90 days.  Security features on original.", { size: 6.5, color: FAINT });
 

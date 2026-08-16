@@ -36,12 +36,18 @@ import {
   getCheckmakerAccounts,
   setCheckmakerAccounts,
   hydrateCheckmakerAccountsFromCloud,
+  getCheckCounters,
+  lastCheckNumberFor,
+  nextCheckNumberFor,
+  recordCheckNumberUsed,
+  hydrateCheckCountersFromCloud,
   useAppSettings,
 } from "../lib/appSettings.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import {
   BLZ_CHECK,
   buildCheckPdfBlob,
+  isValidAbaRouting,
   normalizeCheckDate,
   todayCheckDate,
 } from "../lib/checkPrintPdf.js";
@@ -261,6 +267,27 @@ export default function Settings() {
   const [chkAccounts, setChkAccounts] = useState(() => getCheckmakerAccounts());
   const [chkAcctId, setChkAcctId] = useState(() => getCheckmakerAccounts()[0]?.id || "");
   const [acctDraft, setAcctDraft] = useState(null); // null | account-shaped object being added/edited
+  // Per-account check-number counters — every generate burns a number.
+  const [chkCounters, setChkCounters] = useState(() => getCheckCounters());
+
+  // Push burned check numbers to the cloud profile so the other device can't
+  // reissue them (fire-and-forget; local counter is already saved).
+  const persistCheckCountersToCloud = useCallback(
+    async (counters) => {
+      if (typeof saveSettings !== "function") return;
+      try {
+        const doc = typeof getSettings === "function" ? await getSettings() : null;
+        const baseProfile = mergeProfile(doc?.profile || profile);
+        await saveSettings({
+          profile: { ...baseProfile, checkmakerCheckCounters: counters },
+          features: mergeFeatures(doc?.features || features),
+        });
+      } catch {
+        /* counter is safe on this device; cloud sync retries on next generate */
+      }
+    },
+    [saveSettings, getSettings, profile, features]
+  );
 
   // Save the funding-account list locally + to the cloud profile (phone ↔ computer).
   const persistCheckmakerAccounts = useCallback(
@@ -336,6 +363,11 @@ export default function Settings() {
           const next = getCheckmakerAccounts();
           setChkAccounts(next);
           setChkAcctId((cur) => (next.some((a) => a.id === cur) ? cur : next[0]?.id || ""));
+        }
+        // Check-number counters — MAX-merge so a number burned on either
+        // device is never offered again on this one.
+        if (doc?.profile?.checkmakerCheckCounters && typeof doc.profile.checkmakerCheckCounters === "object") {
+          setChkCounters(hydrateCheckCountersFromCloud(doc.profile.checkmakerCheckCounters));
         }
       }
     } catch (e) {
@@ -1030,6 +1062,9 @@ export default function Settings() {
         >
           {(() => {
             const selAcct = chkAccounts.find((a) => a.id === chkAcctId) || chkAccounts[0] || null;
+            // chkCounters in deps: re-derives the auto number after each generate.
+            const autoNextNo = selAcct ? nextCheckNumberFor(selAcct) : "1001";
+            void chkCounters;
             return (
               <>
                 <p className="text-xs text-slate-500 font-semibold mb-3">
@@ -1095,13 +1130,13 @@ export default function Settings() {
                   </Fld>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <Fld label="Check #">
+                  <Fld label={"Check # (auto: " + autoNextNo + ")"}>
                     <input
                       className={inputCls}
                       inputMode="numeric"
                       value={chk.checkNo}
                       data-testid="check-number"
-                      placeholder={selAcct?.startCheckNo || "1001"}
+                      placeholder={autoNextNo + " (auto)"}
                       onChange={(e) => setChk((c) => ({ ...c, checkNo: e.target.value }))}
                     />
                   </Fld>
@@ -1134,7 +1169,17 @@ export default function Settings() {
                       return;
                     }
                     try {
-                      const checkNo = chk.checkNo.trim() || String(selAcct.startCheckNo || "1001");
+                      // Auto-incrementing check number — every generate burns a
+                      // number, per account, and a burned number is never reused.
+                      const manualNo = chk.checkNo.trim().replace(/\D/g, "");
+                      const lastUsed = lastCheckNumberFor(selAcct.id);
+                      if (manualNo && Number(manualNo) <= lastUsed) {
+                        showToast?.(
+                          "Check #" + manualNo + " was already produced on this account — next is #" + nextCheckNumberFor(selAcct)
+                        );
+                        return;
+                      }
+                      const checkNo = manualNo || nextCheckNumberFor(selAcct);
                       // Empty → today; 08142026 / 08/14/26 / 08/14/2026 → printed with slashes.
                       const dateStr = normalizeCheckDate(chk.date);
                       setChk((c) => ({ ...c, date: dateStr }));
@@ -1160,6 +1205,10 @@ export default function Settings() {
                         showToast?.("Account number is required on the funding account");
                         return;
                       }
+                      if (!isValidAbaRouting(config.routing)) {
+                        // Warn but print — the 9-digit form is enforced above.
+                        showToast?.("⚠ Routing " + config.routing + " fails the ABA checksum — double-check it against a real check");
+                      }
                       const blob = buildCheckPdfBlob({
                         payee: chk.payee.trim(),
                         amount: amt,
@@ -1177,7 +1226,13 @@ export default function Settings() {
                         throw new Error("PDF download helper missing — hard-refresh the app");
                       }
                       downloadPdfBlob(blob, filename);
-                      showToast?.("Check PDF generated — signature included, ready to print");
+                      // Burn the number AFTER a successful generate, refresh the
+                      // auto display, and sync the counter to the other device.
+                      const counters = recordCheckNumberUsed(selAcct.id, checkNo);
+                      setChkCounters(counters);
+                      setChk((c) => ({ ...c, checkNo: "" }));
+                      persistCheckCountersToCloud(counters);
+                      showToast?.("Check #" + checkNo + " generated — next will be #" + nextCheckNumberFor(selAcct));
                     } catch (e) {
                       showToast?.("Could not generate check: " + String(e?.message || e));
                     }
@@ -1277,6 +1332,11 @@ export default function Settings() {
                         </Fld>
                         <Fld label="Routing (ABA) #">
                           <input className={inputCls} inputMode="numeric" value={acctDraft.routing} placeholder="021000021" onChange={(e) => setAcctDraft((d) => ({ ...d, routing: e.target.value.replace(/\D/g, "") }))} />
+                          {String(acctDraft.routing).length === 9 && !isValidAbaRouting(acctDraft.routing) ? (
+                            <div className="text-[11px] font-bold text-rose-600 mt-1" data-testid="check-routing-warning">
+                              ⚠ Fails the ABA checksum — double-check against a real check from this account
+                            </div>
+                          ) : null}
                         </Fld>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -1301,6 +1361,10 @@ export default function Settings() {
                             if (!/^\d{9}$/.test(String(d.routing))) {
                               showToast?.("Routing must be 9 digits");
                               return;
+                            }
+                            if (!isValidAbaRouting(d.routing)) {
+                              // Save anyway (warn-only) — but make the risk unmissable.
+                              showToast?.("⚠ Saved, but routing " + d.routing + " fails the ABA checksum — verify it before printing real checks");
                             }
                             if (!/^\d{3,17}$/.test(String(d.account))) {
                               showToast?.("Enter a valid account number");

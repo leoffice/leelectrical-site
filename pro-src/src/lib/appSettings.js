@@ -479,6 +479,81 @@ export function hydrateCheckmakerAccountsFromCloud(cloudList) {
   return getCheckmakerAccounts();
 }
 
+/**
+ * Checkmaker — per-account check-number counters. Maps account id → the LAST
+ * check number actually generated on that account. Every generate (even a
+ * test) burns a number; a number that has been produced is never offered
+ * again. The next number is max(account.startCheckNo, last + 1), so raising
+ * the starting number jumps the sequence forward to match real check stock,
+ * while lowering it can never cause a reuse.
+ */
+export const CHECKMAKER_COUNTERS_KEY = "lepro_checkmaker_check_counters";
+
+function sanitizeCounters(raw) {
+  const out = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [id, v] of Object.entries(raw)) {
+      const n = Math.floor(Number(v));
+      if (id && Number.isFinite(n) && n > 0) out[id] = n;
+    }
+  }
+  return out;
+}
+
+export function getCheckCounters() {
+  try {
+    const ls = storage();
+    if (!ls) return {};
+    return sanitizeCounters(JSON.parse(ls.getItem(CHECKMAKER_COUNTERS_KEY) || "{}"));
+  } catch {
+    return {};
+  }
+}
+
+/** Last check number generated on this account (0 = none yet). */
+export function lastCheckNumberFor(accountId) {
+  return getCheckCounters()[accountId] || 0;
+}
+
+/** The number the NEXT generate on this account will use. */
+export function nextCheckNumberFor(account) {
+  const start = parseInt(String(account?.startCheckNo || "").replace(/\D/g, ""), 10) || 1001;
+  return String(Math.max(start, lastCheckNumberFor(account?.id) + 1));
+}
+
+/** Burn a number: last = max(last, used). Returns the updated counter map. */
+export function recordCheckNumberUsed(accountId, usedNo) {
+  const n = parseInt(String(usedNo).replace(/\D/g, ""), 10);
+  if (!accountId || !Number.isFinite(n) || n <= 0) return getCheckCounters();
+  const map = getCheckCounters();
+  map[accountId] = Math.max(map[accountId] || 0, n);
+  try {
+    storage()?.setItem(CHECKMAKER_COUNTERS_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getCheckCounters();
+}
+
+/**
+ * Cloud merge (phone ↔ computer): take the MAX per account so a number burned
+ * on either device is never reissued by the other.
+ */
+export function hydrateCheckCountersFromCloud(cloudMap) {
+  const cloud = sanitizeCounters(cloudMap);
+  const local = getCheckCounters();
+  const merged = { ...local };
+  for (const [id, n] of Object.entries(cloud)) merged[id] = Math.max(merged[id] || 0, n);
+  try {
+    storage()?.setItem(CHECKMAKER_COUNTERS_KEY, JSON.stringify(merged));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getCheckCounters();
+}
+
 export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
@@ -493,6 +568,7 @@ export function readAppSettings() {
     assistantVoice: getAssistantVoiceId(),
     estimateGeneratorFees: getEstimateGeneratorFees(),
     checkmakerAccounts: getCheckmakerAccounts(),
+    checkmakerCheckCounters: getCheckCounters(),
   };
 }
 
