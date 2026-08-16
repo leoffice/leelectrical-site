@@ -102,6 +102,14 @@ describe("buildCheckPdf", () => {
     expect(text.includes("CHASE")).toBe(false);
   });
 
+  it("embeds the GPL GnuMICR E-13B TrueType font for the MICR line", () => {
+    expect(text.includes("FontFile2")).toBe(true); // real font program embedded
+    expect(text.includes("GnuMICR")).toBe(true);
+    expect(text.includes("/F3 ")).toBe(true); // MICR line drawn in the MICR font
+    // MICR string mapped to the font's symbol keys (A=transit, B=on-us):
+    expect(text).toContain("(B1001B A021000021A 606031220B)");
+  });
+
   it("uses BLZ's own account details with the current address", () => {
     expect(BLZ_CHECK.routing).toBe("021000021");
     expect(BLZ_CHECK.account).toBe("606031220");

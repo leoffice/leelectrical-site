@@ -1,0 +1,33 @@
+GnuMICR — E-13B MICR font
+=========================
+File: GnuMICR.ttf
+Author/Copyright: (c) 2000-2003 Eric Sandeen
+License: GNU General Public License, version 2 (GPL-2.0)
+Source: https://github.com/alerque/gnumicr  (maintained fork; original by Eric Sandeen)
+
+This font is FREE SOFTWARE under the GPL-2.0. You may use, copy, and redistribute
+it under the terms of the GPL. The full license text (COPYING / GPL-2.0) and the
+font's source (the GnuMICR.raw / Metafont source) are the GPL "source code" and
+should be made available alongside any distribution of this font.
+
+WHITE-LABEL / EMBEDDING NOTE
+----------------------------
+GnuMICR is GPL-2.0 (copyleft). Author Eric Sandeen's README additionally states a
+WISH (not a license term) that the font not be built into proprietary software,
+but instead be distributed AS A SEPARATE FILE alongside the application with the
+license and source intact.
+
+For a proprietary / white-labeled product, the clean options are:
+  1. Ship GnuMICR.ttf as a separate asset file (not compiled into the app
+     binary/bundle), with this LICENSE and the font source available; OR
+  2. Use a permissively-licensed (OFL / MIT / Apache / public-domain) E-13B font
+     if the font must be embedded into a proprietary bundle.
+
+Embedding a subset of the font into individual generated check PDFs (as this
+generator does) is normal document font embedding; the bundling of the font into
+the application distribution is the part to review for GPL compliance.
+
+Accuracy note: this TTF was converted from the Type 1 source by a third party;
+the author's hand-tuned PostScript Type 1 version is the dimensionally accurate
+one. For laser check printing this TTF is fine; if bank-reader reject rates
+matter, validate printed output with a MICR reader.

@@ -10,9 +10,11 @@
 //   * Front of the check only — no deposit/endorsement back page.
 //   * BLZ's own account only (flagship/internal tenant gates the UI).
 //
-// The bottom MICR line is drawn in genuine E-13B glyph geometry (vector rects)
-// at the correct 0.130" pitch band — not a monospace substitute.
-import { ADVANCE, BODY_HEIGHT, GLYPHS, micrLine, micrDigits } from "./e13bGlyphs.js";
+// The bottom MICR line is set in the genuine GnuMICR E-13B TrueType font,
+// embedded in the PDF (/F3, FontFile2) at the correct 0.130" pitch —
+// not a monospace substitute or vector approximation.
+import { micrLine, micrDigits } from "./e13bGlyphs.js";
+import { E13B_TTF_BASE64, E13B_METRICS } from "./e13bFontData.js";
 import { leSignatureImage } from "./leSignatureJpeg.js";
 
 const PAGE_W = 612;
@@ -108,6 +110,30 @@ function textWidth(str, size, font = "F1") {
   return (w / 1000) * size;
 }
 
+// ── genuine E-13B MICR font (embedded TrueType) ─────────────────────────────
+const MICR_SIZE = 12.5; // → ~0.130" pitch (8 chars/inch) at this font's advance
+// micrLine() emits canonical keys (O=on-us, T=transit); this font's keys are
+// A=transit, B=on-us, C=amount, D=dash.
+const MICR_KEYMAP = { T: "A", O: "B", A: "C", D: "D" };
+function toMicrGlyphs(s) {
+  let o = "";
+  for (const ch of s) o += MICR_KEYMAP[ch] || ch;
+  return o;
+}
+function b64ToBytes(b64) {
+  const bin =
+    typeof atob === "function"
+      ? atob(b64)
+      : typeof Buffer !== "undefined"
+      ? Buffer.from(b64, "base64").toString("binary")
+      : "";
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+  return out;
+}
+const E13B_BYTES = b64ToBytes(E13B_TTF_BASE64);
+const MICR_ADV_PT = (E13B_METRICS.advance1000 / 1000) * MICR_SIZE; // width per char (pt)
+
 function Page() {
   const ops = [];
   const api = {
@@ -135,6 +161,13 @@ function Page() {
     image(name, x, topY, w, h) {
       ops.push(`q ${r2(w)} 0 0 ${r2(h)} ${r2(x)} ${r2(PAGE_H - topY - h)} cm /${name} Do Q`);
     },
+    // MICR line in the embedded E-13B font (/F3), black. baselineY from top.
+    micrText(x, baselineY, str) {
+      const s = toMicrGlyphs(String(str == null ? "" : str));
+      ops.push(`0 0 0 rg`);
+      ops.push(`BT /F3 ${MICR_SIZE} Tf 1 0 0 1 ${r2(x)} ${r2(PAGE_H - baselineY)} Tm (${esc(s)}) Tj ET`);
+      return s.length * MICR_ADV_PT;
+    },
     stream: () => ops.join("\n"),
   };
   return api;
@@ -157,20 +190,35 @@ function assemblePdf(page, images) {
   push("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
 
   const stream = page.stream();
-  const xobjEntries = imgs.map((im, i) => `/${im.name} ${7 + i} 0 R`).join(" ");
+  const xobjEntries = imgs.map((im, i) => `/${im.name} ${10 + i} 0 R`).join(" ");
   const xobjs = imgs.length ? ` /XObject << ${xobjEntries} >>` : "";
   obj(1, "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
   obj(2, "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
   obj(
     3,
-    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${xobjs} >> >> endobj\n`
+    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >>${xobjs} >> >> endobj\n`
   );
   obj(4, `4 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj\n`);
   obj(5, "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n");
   obj(6, "6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n");
+  // Embedded genuine E-13B MICR TrueType font (F3).
+  const micrWidths = new Array(68 - 32 + 1).fill(E13B_METRICS.advance1000).join(" ");
+  const bb = E13B_METRICS.bbox;
+  obj(
+    7,
+    `7 0 obj << /Type /Font /Subtype /TrueType /BaseFont /GnuMICR /FirstChar 32 /LastChar 68 /Widths [${micrWidths}] /FontDescriptor 8 0 R /Encoding /WinAnsiEncoding >> endobj\n`
+  );
+  obj(
+    8,
+    `8 0 obj << /Type /FontDescriptor /FontName /GnuMICR /Flags 32 /FontBBox [${bb[0]} ${E13B_METRICS.descent} ${bb[2]} ${bb[3]}] /ItalicAngle 0 /Ascent ${E13B_METRICS.ascent} /Descent ${E13B_METRICS.descent} /CapHeight ${E13B_METRICS.capHeight} /StemV 80 /FontFile2 9 0 R >> endobj\n`
+  );
+  xref[9] = offset;
+  push(`9 0 obj << /Length ${E13B_BYTES.length} /Length1 ${E13B_BYTES.length} >> stream\n`);
+  push(E13B_BYTES);
+  push("\nendstream\nendobj\n");
 
   imgs.forEach((im, i) => {
-    const id = 7 + i;
+    const id = 10 + i;
     obj(
       id,
       `${id} 0 obj << /Type /XObject /Subtype /Image /Width ${im.width} /Height ${im.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >> stream\n`
@@ -179,7 +227,7 @@ function assemblePdf(page, images) {
     push("\nendstream\nendobj\n");
   });
 
-  const maxId = imgs.length ? 6 + imgs.length : 6;
+  const maxId = 9 + imgs.length;
   const xrefStart = offset;
   push(`xref\n0 ${maxId + 1}\n`);
   push("0000000000 65535 f \n");
@@ -233,26 +281,6 @@ export function normalizeCheckDate(raw, now = new Date()) {
     return `${dig.slice(0, 2)}/${dig.slice(2, 4)}/20${dig.slice(4)}`;
   }
   return s;
-}
-
-// ── MICR band (E-13B vector glyphs) ─────────────────────────────────────────
-function drawMicr(pg, text, xLeftPt, baselineTopY, pitchPt = 0.13 * IN) {
-  const scale = pitchPt / ADVANCE; // uniform — preserves authored proportions
-  let pen = xLeftPt;
-  for (const ch of text) {
-    if (ch === " ") {
-      pen += ADVANCE * scale;
-      continue;
-    }
-    const rects = GLYPHS[ch];
-    if (rects) {
-      for (const [rx, ry, rw, rh] of rects) {
-        pg.fillRect(pen + rx * scale, baselineTopY - (ry + rh) * scale, rw * scale, rh * scale, BLACK);
-      }
-    }
-    pen += ADVANCE * scale;
-  }
-  return pen - xLeftPt; // printed width (pt)
 }
 
 // ── the check ───────────────────────────────────────────────────────────────
@@ -367,8 +395,9 @@ export function buildCheckPdf({
   pg.rule(L + 14, R - 76, wordsY + 3, INK, 1.1);
   pg.text(R - 14, wordsY - 2, "DOLLARS", { size: 9, font: "F2", color: GREY, align: "right" });
 
-  // memo + signature (auto-signed by default)
-  const sigY = CB - 68;
+  // memo + signature (auto-signed by default) — sits low, close to the MICR
+  // band (Levi 2026-08-14: memo/signature nearer the account numbers).
+  const sigY = CB - 50;
   pg.text(L + 14, sigY + 2, "MEMO", { size: 8, font: "F2", color: GREY });
   pg.rule(L + 54, L + 260, sigY + 4, INK, 0.9);
   if (memo) pg.text(L + 62, sigY - 1, String(memo), { size: 10, color: INK });
@@ -388,23 +417,20 @@ export function buildCheckPdf({
     const sigTop = sigY + 4 - h - 2;
     pg.image(sigImage.name, sigX, sigTop, w, h);
   }
-  pg.text(R - 14, sigY + 18, "AUTHORIZED SIGNATURE", { size: 7.5, color: GREY, align: "right" });
+  // Caption tucked right under the line so it stays clear of the MICR tops.
+  pg.text(R - 14, sigY + 13, "AUTHORIZED SIGNATURE", { size: 7.5, color: GREY, align: "right" });
 
   // optional faint non-negotiable SAMPLE mark (app generates real checks w/o it)
   if (sample) {
     pg.text(cx, (CT + CB) / 2, "SAMPLE - NON-NEGOTIABLE", { size: 30, font: "F2", color: [0.9, 0.72, 0.72], align: "center" });
   }
 
-  // MICR band (E-13B), centered near the check bottom — always uses digit-only
-  // routing/account/check# from the selected funding account (change/save-safe).
+  // MICR band — genuine embedded E-13B font, centered near the check bottom —
+  // always uses digit-only routing/account/check# from the selected funding
+  // account (change/save-safe).
   const micr = micrLine(cfg.routing, cfg.account, chkNo);
-  // Only advance for characters we can draw (skip unknown so pitch stays tight).
-  let micrCells = 0;
-  for (const ch of micr) {
-    if (ch === " " || GLYPHS[ch]) micrCells += 1;
-  }
-  const micrW = micrCells * ADVANCE * ((0.13 * IN) / ADVANCE);
-  drawMicr(pg, micr, cx - micrW / 2, CB - 0.34 * IN);
+  const micrW = toMicrGlyphs(micr).length * MICR_ADV_PT;
+  pg.micrText(cx - micrW / 2, CB - 0.34 * IN, micr);
 
   pg.text(L + 14, CB - 10, "Void after 90 days.  Security features on original.", { size: 6.5, color: FAINT });
 
