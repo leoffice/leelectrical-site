@@ -1,5 +1,5 @@
 GnuMICR — E-13B MICR font
-=========================
+-------------------------
 File: GnuMICR.ttf
 Author/Copyright: (c) 2000-2003 Eric Sandeen
 License: GNU General Public License, version 2 (GPL-2.0)
