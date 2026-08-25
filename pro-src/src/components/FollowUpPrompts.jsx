@@ -7,7 +7,7 @@ import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { todayStr } from "../lib/format.js";
-import { linkedJobForEvent, displayEventNotes } from "../lib/calendarLink.js";
+import { linkedJobForEvent, displayEventNotes, isPendingCalEventId } from "../lib/calendarLink.js";
 import {
   REMINDER_PRIORITIES,
   allocateNextStep,
@@ -22,6 +22,7 @@ import {
   dismissEventReminders,
   formatSnoozeDuration,
   generateReminderNudge,
+  inspectionNotifyRecipients,
   patchEventState,
   pickFirmerNudge,
   rescheduleEventReminder,
@@ -34,6 +35,7 @@ import {
   touchPromptActivity,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
+import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
 import {
   RESTORE_REMINDER_EVENT,
   clearReminderReturn,
@@ -744,9 +746,51 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
   );
 }
 
+function formatInspectionWhenLabel(event) {
+  const start = evStart(event);
+  const endRaw = event?.end || "";
+  if (!start) return "";
+  try {
+    const s = new Date(start.includes("T") ? start : start.replace(" ", "T"));
+    if (Number.isNaN(s.getTime())) return start.replace("T", " ").slice(0, 16);
+    const opts = { weekday: "short", month: "short", day: "numeric" };
+    const day = s.toLocaleDateString("en-US", opts);
+    const tOpts = { hour: "numeric", minute: "2-digit" };
+    const t0 = s.toLocaleTimeString("en-US", tOpts);
+    if (endRaw) {
+      const e = new Date(String(endRaw).includes("T") ? endRaw : String(endRaw).replace(" ", "T"));
+      if (!Number.isNaN(e.getTime())) {
+        return `${day} · ${t0} – ${e.toLocaleTimeString("en-US", tOpts)}`;
+      }
+    }
+    return `${day} · ${t0}`;
+  } catch {
+    return start.replace("T", " ").slice(0, 16);
+  }
+}
+
+function inspectionJobLabel(job, event) {
+  const inv = job?.invoiceNo || job?.DocNumber || job?.docNumber || "";
+  const name =
+    job?.customer ||
+    job?.title ||
+    event?.summary ||
+    (job?.id ? "Linked job" : "No linked job");
+  if (inv) return `#${inv} · ${name}`;
+  return name;
+}
+
 function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissForWork, onPauseAll }) {
   const nav = useNavigate();
+  const { enqueue, removeLocalEvent, patchAndSave, showToast } = useStoreData();
+  const [editing, setEditing] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const label = when === "today" ? "Today" : "Tomorrow";
+  const draftOnly = isPendingCalEventId(event?.id);
+  const notifyRows = inspectionNotifyRecipients(event, job);
+  const jobLabel = inspectionJobLabel(job, event);
+  const whenLabel = formatInspectionWhenLabel(event);
 
   // Single advance only — calling both onDone + onClose skipped the next card and
   // could re-open this one after a queue rebuild.
@@ -777,24 +821,118 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
     onDone();
   };
 
+  const removeAppointment = async () => {
+    if (!event?.id || removing) return;
+    setRemoving(true);
+    try {
+      const eid = String(event.id);
+      if (!isPendingCalEventId(eid)) {
+        await enqueue(
+          "calendar_delete",
+          job?.id || "today",
+          { calEventId: eid },
+          "judgment",
+          "caldel-insp:" + eid
+        );
+      }
+      removeLocalEvent?.(eid);
+      if (job?.id && String(job.calEventId || "") === eid) {
+        await patchAndSave?.(job.id, { calEventId: "" });
+      }
+      ackInspectionReminder(event);
+      showToast?.(draftOnly ? "Draft cleared — nothing was on Google Calendar" : "Appointment removed");
+      onDone();
+    } catch {
+      showToast?.("Couldn't remove appointment — try again");
+      setRemoving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <EditAppointmentSheet
+        event={event}
+        linkedJobId={job?.id}
+        inspectionPreset
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          ackInspectionReminder(event);
+          onDone();
+        }}
+        onDeleted={() => {
+          ackInspectionReminder(event);
+          onDone();
+        }}
+      />
+    );
+  }
+
   return (
     <PromptSurface
-      title={`🔴 Inspection — ${label}`}
+      title={draftOnly ? `⚠️ Draft inspection — ${label}` : `🔔 Inspection Reminder — ${label}`}
       onClose={ack}
       onSnooze={snooze}
       testId="inspection-reminder-sheet"
       urgent
     >
       <PauseRemindersInPopup onPaused={onPauseAll} />
+      {draftOnly ? (
+        <p
+          className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3"
+          data-testid="inspection-draft-warning"
+        >
+          Not on Google Calendar yet — this is a local draft. Approve the details below, or remove it.
+        </p>
+      ) : null}
       <div
-        className="rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 mb-4 animate-insp-heartbeat"
+        className="rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 mb-3 animate-insp-heartbeat space-y-1.5"
         data-testid="inspection-reminder-card"
       >
-        <div className="font-bold text-red-900/90">{event?.summary || "Inspection"}</div>
-        <div className="text-sm text-red-800/80 mt-1">{evStart(event).replace("T", " ").slice(0, 16)}</div>
-        {event?.location ? <div className="text-sm text-red-700/75 mt-1">{event.location}</div> : null}
+        {event?.location ? (
+          <div className="text-sm text-red-900/90">
+            <span className="mr-1">📍</span>
+            {event.location}
+          </div>
+        ) : null}
+        <div className="text-sm text-red-900/90">
+          <span className="mr-1">📝</span>
+          {event?.summary || "Inspection"}
+        </div>
+        {whenLabel ? (
+          <div className="text-sm text-red-900/90">
+            <span className="mr-1">📅</span>
+            {whenLabel}
+          </div>
+        ) : null}
+        <div className="text-sm text-red-800/80 pt-1 border-t border-red-200/40">Job: {jobLabel}</div>
       </div>
-      {job ? (
+
+      <div
+        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 mb-3"
+        data-testid="inspection-notify-snapshot"
+      >
+        <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5">
+          Who gets notified
+        </div>
+        <ul className="space-y-1.5">
+          {notifyRows.map((r, i) => (
+            <li key={i} className="text-sm text-slate-800 leading-snug">
+              <span className="font-semibold">{r.who}</span>
+              <span className="text-slate-500"> — {r.how}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <button
+        type="button"
+        className="btn bg-white text-slate-800 border border-violet-200/70 w-full mb-2"
+        onClick={() => setEditing(true)}
+        data-testid="inspection-approve-details"
+      >
+        ✅ Approve / edit details
+      </button>
+      {job?.id ? (
         <button type="button" className="btn bg-red-500/15 text-red-900 border border-red-200/60 w-full mb-2" onClick={openJob}>
           Open job — {job.customer || "linked"}
         </button>
@@ -816,8 +954,38 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
           }}
         />
       </div>
+      {confirmRemove ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-3 mb-2" data-testid="inspection-remove-confirm">
+          <p className="text-sm text-red-900 mb-2">
+            {draftOnly
+              ? "Clear this draft? Nothing is on Google Calendar to delete."
+              : "Remove this appointment from your calendar?"}
+          </p>
+          <button
+            type="button"
+            className="btn bg-red-600 text-white w-full mb-2"
+            onClick={removeAppointment}
+            disabled={removing}
+            data-testid="inspection-remove-confirm-yes"
+          >
+            {removing ? "Removing…" : "Yes — remove it"}
+          </button>
+          <button type="button" className="btn-ghost w-full" onClick={() => setConfirmRemove(false)}>
+            Keep it
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="btn bg-white text-red-700 border border-red-200 w-full mb-2"
+          onClick={() => setConfirmRemove(true)}
+          data-testid="inspection-remove"
+        >
+          🗑️ Remove appointment
+        </button>
+      )}
       <button type="button" className="btn-brand w-full" onClick={ack} data-testid="inspection-thanks">
-        Got it — thanks
+        Got it
       </button>
     </PromptSurface>
   );

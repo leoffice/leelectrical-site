@@ -413,6 +413,41 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
 
+/**
+ * Who this inspection notice may ping — for the login-card snapshot.
+ * Calendar blob often omits guests; job.email is the usual invite target.
+ */
+export function inspectionNotifyRecipients(event, job) {
+  const rows = [];
+  rows.push({
+    who: "You",
+    how: "This LE Pro login notice",
+  });
+  rows.push({
+    who: "You",
+    how: "Google Calendar alerts (1 hour + 1 day before on inspections)",
+  });
+  const seen = new Set();
+  const addEmail = (email, how) => {
+    const e = String(email || "")
+      .trim()
+      .toLowerCase();
+    if (!e || !e.includes("@") || seen.has(e)) return;
+    seen.add(e);
+    rows.push({ who: e, how });
+  };
+  for (const raw of event?.guests || event?.attendees || []) {
+    const email = typeof raw === "string" ? raw : raw?.email;
+    addEmail(email, "Calendar guest invite");
+  }
+  if (job?.email) {
+    for (const part of String(job.email).split(/[,;\s]+/)) {
+      addEmail(part, "Job email (customer invite when notify is on)");
+    }
+  }
+  return rows;
+}
+
 /** Inspection reminders: day before + day of (not past end of event day). */
 export function inspectionCandidates(events, today, now = new Date()) {
   const state = loadState();
@@ -420,6 +455,14 @@ export function inspectionCandidates(events, today, now = new Date()) {
   return (events || [])
     .filter((e) => {
       if (!isInspectionEvent(e)) return false;
+      // Stale optimistic drafts that never landed on Google — do not scare-login.
+      if (String(e?.id || "").startsWith("pending-")) {
+        const m = String(e.id).match(/^pending-(\d{10,})$/);
+        if (m) {
+          const age = (now instanceof Date ? now.getTime() : Date.now()) - Number(m[1]);
+          if (age >= 6 * 60 * 60 * 1000) return false;
+        }
+      }
       const ymd = eventYmd(e);
       if (ymd !== today && ymd !== tomorrow) return false;
       if (isEventHandled(state, e.id, e)) return false;

@@ -9,6 +9,7 @@ import {
   OVERFLOW_REMINDER_MESSAGE,
   applyPromptQueueCap,
   ackInspectionReminder,
+  inspectionNotifyRecipients,
   buildPromptQueue,
   dismissEventReminders,
   dueScheduledReminders,
@@ -142,6 +143,30 @@ describe("followUpReminders", () => {
       { id: "later", summary: "Inspection", start: "2026-07-15T09:00" },
     ];
     expect(inspectionCandidates(events, today).map((e) => e.id)).toEqual(["today", "tom"]);
+  });
+
+  it("inspectionNotifyRecipients lists you + job email guests", () => {
+    const rows = inspectionNotifyRecipients(
+      { id: "e1", summary: "Inspection", guests: ["other@x.com"] },
+      { id: "j1", email: "cust@example.com" }
+    );
+    expect(rows.some((r) => r.who === "You" && /login notice/i.test(r.how))).toBe(true);
+    expect(rows.some((r) => r.who === "cust@example.com")).toBe(true);
+    expect(rows.some((r) => r.who === "other@x.com")).toBe(true);
+  });
+
+  it("inspectionCandidates skips stale pending drafts", () => {
+    const oldTs = Date.now() - 7 * 60 * 60 * 1000;
+    const events = [
+      {
+        id: "pending-" + oldTs,
+        summary: "Inspection",
+        start: "2026-07-10T08:00",
+        location: "2801 Emmons",
+      },
+      { id: "live", summary: "Final inspection", start: "2026-07-10T14:00" },
+    ];
+    expect(inspectionCandidates(events, today).map((e) => e.id)).toEqual(["live"]);
   });
 
   it("cancelPastAppointmentReminders clears past inspection leftovers only", () => {
