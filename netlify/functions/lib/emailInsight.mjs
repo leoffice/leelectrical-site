@@ -956,8 +956,61 @@ export function buildAppointmentDescription(insight, job) {
   }).join("\n");
 }
 
+/** Con Edison / Energy Services case id from subject or body (e.g. MC-941580). */
+export function extractConedCaseNumber(text) {
+  const m = String(text || "").match(/\b(MC-\d{4,})\b/i);
+  return m ? m[1].toUpperCase() : "";
+}
+
 export function matchJobForInsight(insight, jobs, minScore = 0.55) {
   const addr = insight?.address || "";
+  const caseNo =
+    extractConedCaseNumber(
+      [
+        insight?.conedCaseNumber,
+        insight?.source?.subject,
+        insight?.emailSnippet,
+        insight?.summary,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    ) || "";
+  // Exact Con Ed case on the job wins over address-only (Levi 2026-08-25:
+  // MC-941580 at 1337 President matched an old Lamp Lighter invoice at same street).
+  if (caseNo) {
+    const byCase = (jobs || []).filter(
+      (j) =>
+        !j?._archived &&
+        !j?._deleted &&
+        String(j?.conedCaseNumber || j?.paperwork?.coned?.caseNumber || "").toUpperCase() === caseNo
+    );
+    if (byCase.length === 1) {
+      return { jobId: byCase[0].id, score: 1, job: byCase[0] };
+    }
+    if (byCase.length > 1 && addr) {
+      let best = null;
+      let bestScore = 0;
+      for (const j of byCase) {
+        const candidates = [j.serviceAddress, j.address, j.billingAddress].filter(Boolean);
+        for (const c of candidates) {
+          const score = addressSimilarity(addr, c);
+          if (score > bestScore) {
+            bestScore = score;
+            best = j;
+          }
+        }
+      }
+      if (best) return { jobId: best.id, score: Math.max(bestScore, 0.95), job: best };
+      const ranked = [...byCase].sort((a, b) => {
+        const rank = (j) =>
+          (String(j.id || "").startsWith("local-") ? 4 : 0) +
+          (Number(j.openBalance) > 0 ? 2 : 0) +
+          (j.paid ? 0 : 1);
+        return rank(b) - rank(a);
+      });
+      return { jobId: ranked[0].id, score: 0.95, job: ranked[0] };
+    }
+  }
   if (!addr) return { jobId: null, score: 0, job: null };
   let best = null;
   let bestScore = 0;
@@ -965,15 +1018,34 @@ export function matchJobForInsight(insight, jobs, minScore = 0.55) {
     if (j._archived || j._deleted) continue;
     const candidates = [j.serviceAddress, j.address, j.billingAddress].filter(Boolean);
     for (const c of candidates) {
-      const score = addressSimilarity(addr, c);
-      if (score > bestScore) {
-        bestScore = score;
+      let score = addressSimilarity(addr, c);
+      if (
+        caseNo &&
+        String(j?.conedCaseNumber || j?.paperwork?.coned?.caseNumber || "").toUpperCase() === caseNo
+      ) {
+        score = Math.min(1, score + 0.25);
+      }
+      const tieBreak =
+        (String(j.id || "").startsWith("local-") ? 0.02 : 0) +
+        (Number(j.openBalance) > 0 ? 0.01 : 0) -
+        (j.paid ? 0.02 : 0);
+      const effective = score + tieBreak;
+      if (effective > bestScore) {
+        bestScore = effective;
         best = j;
       }
     }
   }
-  if (!best || bestScore < minScore) return { jobId: null, score: bestScore, job: null };
-  return { jobId: best.id, score: bestScore, job: best };
+  const addressFloor = best
+    ? Math.max(
+        0,
+        ...[best.serviceAddress, best.address, best.billingAddress]
+          .filter(Boolean)
+          .map((c) => addressSimilarity(addr, c))
+      )
+    : 0;
+  if (!best || addressFloor < minScore) return { jobId: null, score: addressFloor, job: null };
+  return { jobId: best.id, score: Math.min(1, bestScore), job: best };
 }
 
 export function buildProposedActions(insight, job, now = new Date()) {
@@ -1041,7 +1113,8 @@ export function buildProposedActions(insight, job, now = new Date()) {
       key: "guest_customer",
       label: `Add ${job.customer} to the event`,
       enabled: true,
-      defaultOn: true,
+      // Opt-in only — customer invite after Approve (Levi 2026-08-25).
+      defaultOn: false,
     });
   }
   if (job?.email && scheduleable) {
@@ -1049,7 +1122,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
       key: "guest_email",
       label: `Add customer email (${job.email}) to the event`,
       enabled: true,
-      defaultOn: !!job.email,
+      defaultOn: false,
     });
   }
 
@@ -1114,6 +1187,9 @@ export function formatInsightLead(insight, job) {
       : "Inspection marked completed.";
   } else if (outcome === "reminder") {
     jobLine = "This is only a reminder — I won't create a new calendar appointment from it.";
+  } else if (outcome === "scheduled" || outcome === "rescheduled") {
+    const who = job?.customer || "this job";
+    jobLine = `Approve to add calendar for ${who} — customer invite only if you check it.`;
   }
   const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType, insight?.agency);
   return `From ${src}: ${appt}. ${jobLine}`;

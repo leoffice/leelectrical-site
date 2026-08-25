@@ -42,7 +42,7 @@ import {
 } from "../src/lib/applyEmailInsight.js";
 
 const SAMPLE_BODY = `Energy Services has scheduled a Con Edison inspection appointment
-for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.
+for 503 Schenectady Avenue on September 15, 2026 at 2:00 PM.
 Please ensure access to the meter room.`;
 
 const CONED_HTML_REMINDER = `<!DOCTYPE html><HTML><BODY>
@@ -58,7 +58,7 @@ BROOKLYN , NY 11203
 Your Final Inspection passed on Tuesday, July 21, 2026.`;
 
 // Date kept in the future so past-day calendar filter does not drop the action.
-const DOB_CITY_BODY = `The Department of Buildings has scheduled an Electrical Inspection on 8/20/2026 10:15 AM at 149,EAST 116 STREET,Manhattan,10029 for Job Number M01228312.
+const DOB_CITY_BODY = `The Department of Buildings has scheduled an Electrical Inspection on 9/20/2026 10:15 AM at 149,EAST 116 STREET,Manhattan,10029 for Job Number M01228312.
 If there is an immediate need to cancel this scheduled inspection, log into DOB NOW: Inspections.`;
 
 describe("emailInsight", () => {
@@ -86,7 +86,7 @@ describe("emailInsight", () => {
     expect(raw.source.fromLabel).toBe("Energy Services");
     expect(raw.appointmentType).toBe("inspection");
     expect(raw.address).toMatch(/503/i);
-    expect(raw.dateTime).toMatch(/2026-08-15T14:00/);
+    expect(raw.dateTime).toMatch(/2026-09-15T14:00/);
     expect(raw.outcome).toBe("scheduled");
   });
 
@@ -200,7 +200,7 @@ Please use the case number shown above when making inquiries about this service.
         "Your Con Edison appointment | APPT-722669",
         `Your appointment is set.
 Dear Abraham Kaminetsky, Your appointment for electric service repair/installation at 417 WINTHROP ST, BROOKLYN 11203 has been scheduled for:
-Wednesday, August 5, 2026
+Wednesday, September 5, 2026
 We will arrive between 8 a.m. and 11 a.m.
 Your Appointment Reference Number is: APPT-722669
 phone calls and/or text messages from the company about your upcoming service appointment.`
@@ -211,7 +211,7 @@ phone calls and/or text messages from the company about your upcoming service ap
       subject: "Your Con Edison appointment | APPT-722669",
       body: `Your appointment is set.
 Dear Abraham Kaminetsky, Your appointment for electric service repair/installation at 417 WINTHROP ST, BROOKLYN 11203 has been scheduled for:
-Wednesday, August 5, 2026
+Wednesday, September 5, 2026
 We will arrive between 8 a.m. and 11 a.m.
 Your Appointment Reference Number is: APPT-722669
 If your meter is indoors, a customer (18 years or older) must be present.
@@ -219,7 +219,7 @@ phone calls and/or text messages from the company about your upcoming service ap
       messageId: "19f80e4ce97c8474",
     });
     expect(winthrop.outcome).toBe("scheduled");
-    expect(winthrop.dateTime).toMatch(/^2026-08-05T08:00/);
+    expect(winthrop.dateTime).toMatch(/^2026-09-05T08:00/);
     expect(winthrop.appointmentType).toBe("meter_installation");
     expect(winthrop.timeWindow?.startHour).toBe(8);
     expect(winthrop.timeWindow?.endHour).toBe(11);
@@ -326,7 +326,7 @@ You may receive phone calls about your upcoming service appointment.`;
     const enriched = enrichInsight(insight, jobs);
     expect(enriched.jobId).toBe("J-99");
     expect(enriched.jobMatchScore).toBeGreaterThan(0.8);
-    expect(enriched.lead).toMatch(/existing job/i);
+    expect(enriched.lead).toMatch(/Approve to add calendar/i);
     expect(enriched.proposedActions.some((a) => a.key === "calendar")).toBe(true);
     expect(enriched.proposedActions.some((a) => a.key === "paperwork_inspection")).toBe(true);
     // Strong match still waits for Approve before creating a calendar event.
@@ -334,11 +334,13 @@ You may receive phone calls about your upcoming service appointment.`;
   });
 
   it("buildProposedActions includes reminders for inspections", () => {
-    const insight = { appointmentType: "inspection", dateTime: "2026-08-15T14:00", address: "503 Schenectady Ave", outcome: "scheduled" };
+    const insight = { appointmentType: "inspection", dateTime: "2026-09-15T14:00", address: "503 Schenectady Ave", outcome: "scheduled" };
     const job = { id: "J-1", customer: "Jane", email: "j@x.com" };
     const actions = buildProposedActions(insight, job);
     expect(actions.find((a) => a.key === "remind_1d")).toBeTruthy();
-    expect(actions.find((a) => a.key === "guest_email")).toBeTruthy();
+    const guest = actions.find((a) => a.key === "guest_email");
+    expect(guest).toBeTruthy();
+    expect(guest.defaultOn).toBe(false);
   });
 
   it("matchJobForInsight returns null when no good match", () => {
@@ -485,13 +487,13 @@ You may receive phone calls about your upcoming service appointment.`;
       appointmentType: "inspection",
       agency: "coned",
       address: "503 Schenectady Ave, Brooklyn, NY 11203",
-      dateTime: "2026-08-15T14:00",
+      dateTime: "2026-09-15T14:00",
       source: {
         subject: "Con Edison inspection scheduled",
         fromLabel: "Con Edison",
       },
       emailSnippet:
-        "Energy Services has scheduled a Con Edison inspection for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.",
+        "Energy Services has scheduled a Con Edison inspection for 503 Schenectady Avenue on September 15, 2026 at 2:00 PM.",
     };
     expect(hasRealInsightData(real)).toBe(true);
     expect(shouldSurfaceInsight(real, new Date(2026, 6, 22))).toBe(true);
@@ -603,8 +605,8 @@ You may receive phone calls about your upcoming service appointment.`;
     expect(raw.address).toMatch(/149/i);
     expect(raw.address).toMatch(/116/i);
     expect(raw.address).toMatch(/10029|Manhattan/i);
-    expect(raw.dateTime).toBe("2026-08-20T10:00"); // floored from 10:15
-    expect(raw.exactDateTime).toBe("2026-08-20T10:15");
+    expect(raw.dateTime).toBe("2026-09-20T10:00"); // floored from 10:15
+    expect(raw.exactDateTime).toBe("2026-09-20T10:15");
     expect(extractDobJobNumber(DOB_CITY_BODY)).toMatch(/M01228312/i);
     expect(raw.dobJobNumber).toMatch(/M01228312/i);
     expect(raw.source.fromLabel).toMatch(/DOB|City/i);
@@ -628,10 +630,10 @@ You may receive phone calls about your upcoming service appointment.`;
   });
 
   it("floors exact times to half-hour slots", () => {
-    expect(floorToHalfHour("2026-08-15T11:15")).toBe("2026-08-15T11:00");
-    expect(floorToHalfHour("2026-08-15T11:45")).toBe("2026-08-15T11:30");
-    expect(floorToHalfHour("2026-08-15T11:00")).toBe("2026-08-15T11:00");
-    expect(floorToHalfHour("2026-08-15T09:30")).toBe("2026-08-15T09:30");
+    expect(floorToHalfHour("2026-09-15T11:15")).toBe("2026-09-15T11:00");
+    expect(floorToHalfHour("2026-09-15T11:45")).toBe("2026-09-15T11:30");
+    expect(floorToHalfHour("2026-09-15T11:00")).toBe("2026-09-15T11:00");
+    expect(floorToHalfHour("2026-09-15T09:30")).toBe("2026-09-15T09:30");
   });
 
   it("extracts appointment windows between two clocks", () => {
@@ -699,29 +701,29 @@ Your appointment is between 11:00 and 1:00 on July 28, 2026.`;
 
   it("inspection exact time lands in description; schedule uses half-hour", () => {
     const body = `Energy Services has scheduled a Con Edison inspection
-for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
+for 503 Schenectady Avenue on September 15, 2026 at 11:15 AM.`;
     const raw = parseEmailInsight({
       from: "noreply@energy-services.com",
       subject: "Inspection scheduled",
       body,
       messageId: "msg-1115",
     });
-    expect(raw.exactDateTime).toBe("2026-08-15T11:15");
-    expect(raw.dateTime).toBe("2026-08-15T11:00");
-    expect(raw.endDateTime).toBe("2026-08-15T12:00");
+    expect(raw.exactDateTime).toBe("2026-09-15T11:15");
+    expect(raw.dateTime).toBe("2026-09-15T11:00");
+    expect(raw.endDateTime).toBe("2026-09-15T12:00");
     const desc = buildAppointmentDescription(raw, { id: "J-1", email: "c@x.com" });
     expect(desc).toMatch(/11:15/);
     expect(desc).toMatch(/11:00/);
     expect(desc).toMatch(/half-hour/i);
   });
 
-  it("buildCalendarPayload forces inspection reminders + guest + 1h slot, clean notes, full address", () => {
+  it("buildCalendarPayload forces inspection reminders + 1h slot, clean notes, full address — guest opt-in", () => {
     const insight = {
       appointmentType: "inspection",
       agency: "coned",
-      dateTime: "2026-08-15T11:00",
-      exactDateTime: "2026-08-15T11:15",
-      endDateTime: "2026-08-15T12:00",
+      dateTime: "2026-09-15T11:00",
+      exactDateTime: "2026-09-15T11:15",
+      endDateTime: "2026-09-15T12:00",
       address: "503 Schenectady Ave",
       outcome: "scheduled",
       timeWindow: null,
@@ -736,9 +738,9 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     const selected = ensureInspectionSelections(insight, job, new Set(["calendar"]));
     expect(selected.has("remind_1h")).toBe(true);
     expect(selected.has("remind_1d")).toBe(true);
-    expect(selected.has("guest_email")).toBe(true);
+    expect(selected.has("guest_email")).toBe(false);
     const payload = buildCalendarPayload(insight, job, selected);
-    expect(payload.end).toBe("2026-08-15T12:00");
+    expect(payload.end).toBe("2026-09-15T12:00");
     expect(payload.durationMinutes).toBe(60);
     expect(payload.summary).toMatch(/11:00 AM|11:00/);
     expect(payload.summary).not.toMatch(/Aug|August|15/);
@@ -747,11 +749,18 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     expect(payload.location).toMatch(/503 Schenectady/i);
     expect(payload.location).toMatch(/Brooklyn|11203/i);
     expect(payload.reminders.map((r) => r.minutes).sort((a, b) => a - b)).toEqual([60, 1440]);
-    expect(payload.guests).toEqual(["j@x.com"]);
-    expect(payload.notifyCustomer).toBe(true);
+    expect(payload.guests).toEqual([]);
+    expect(payload.notifyCustomer).toBe(false);
     expect(payload.description).toMatch(/11:15/);
     expect(payload.description).toMatch(/inspection|Con Edison|Energy/i);
     expect(payload.colorId).toBe("11");
+    const withGuest = buildCalendarPayload(
+      insight,
+      job,
+      ensureInspectionSelections(insight, job, new Set(["calendar", "guest_email"]))
+    );
+    expect(withGuest.guests).toEqual(["j@x.com"]);
+    expect(withGuest.notifyCustomer).toBe(true);
   });
 
   it("buildCalendarPayload marks meter_installation RED (Winthrop) with colorId 11", () => {
@@ -796,7 +805,7 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
       {
         id: "ev-existing",
         summary: "Con Edison appointment — 2:00 PM",
-        start: "2026-08-15T14:00:00",
+        start: "2026-09-15T14:00:00",
         location: "503 Schenectady Ave",
       },
     ];
@@ -834,7 +843,7 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
       outcome: "scheduled",
       appointmentType: "inspection",
       agency: "coned",
-      dateTime: "2026-08-15T14:00",
+      dateTime: "2026-09-15T14:00",
       address: "503 Schenectady Ave",
       appliedEventId: "ev-to-kill",
     };
@@ -848,7 +857,7 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
       {
         id: "ev-to-kill",
         summary: "Con Edison inspection — 2:00 PM",
-        start: "2026-08-15T14:00:00",
+        start: "2026-09-15T14:00:00",
         location: "503 Schenectady Ave",
       },
     ];
@@ -887,7 +896,7 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     const insight = {
       id: "ei-cancel-2",
       outcome: "scheduled",
-      dateTime: "2026-08-20T10:00",
+      dateTime: "2026-09-20T10:00",
       address: "999 Nowhere St",
     };
     const patches = [];

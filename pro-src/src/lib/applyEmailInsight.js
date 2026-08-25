@@ -59,29 +59,29 @@ export function calendarTitleForInsight(insight) {
 }
 
 /**
- * Force meter-install defaults: 1h + 1d reminders (same as inspection),
- * share-with-customer when we have an email.
+ * Force meter-install defaults: 1h + 1d reminders (same as inspection).
+ * Customer guest invite stays opt-in — never force until Approve checks it
+ * (Levi 2026-08-25: no customer notify until approved in LE Pro).
  */
 export function ensureMeterInstallSelections(insight, job, selected) {
   const next = new Set(selected || []);
   if (insight?.appointmentType === "meter_installation") {
     next.add("remind_1h");
     next.add("remind_1d");
-    if (job?.email) next.add("guest_email");
   }
   return next;
 }
 
 /**
- * Force inspection defaults Levi requires for the test:
- * 1h + 1d reminders, share-with-customer when we have an email.
+ * Force inspection defaults: 1h + 1d reminders.
+ * Customer guest invite stays opt-in — never force until Approve checks it
+ * (Levi 2026-08-25: no customer notify until approved in LE Pro).
  */
 export function ensureInspectionSelections(insight, job, selected) {
   const next = new Set(selected || []);
   if (insight?.appointmentType === "inspection") {
     next.add("remind_1h");
     next.add("remind_1d");
-    if (job?.email) next.add("guest_email");
   }
   return next;
 }
@@ -325,17 +325,7 @@ export async function applyEmailInsight({
     }
   } else if (selected.has("calendar") && insight?.dateTime && scheduleable) {
     const payload = buildCalendarPayload(insight, job, selected);
-    // Always email the customer invite when we have their address (Levi: "then email").
-    if (job?.email && !payload.guests?.length) {
-      const emails = [];
-      for (const part of String(job.email).split(/[,;\s]+/)) {
-        const e = part.trim();
-        if (e && e.includes("@") && !emails.includes(e)) emails.push(e);
-      }
-      payload.guests = emails;
-      payload.attendees = emails;
-      payload.notifyCustomer = emails.length > 0;
-    }
+    // Guests only when Approve kept guest_email / guest_customer checked — never auto-invite.
     customerEmailed = !!(payload.notifyCustomer && payload.guests?.length);
     payload.sendUpdates = customerEmailed ? "all" : "none";
     // Stable key by place+start so original + forward of the same set don't double-create.

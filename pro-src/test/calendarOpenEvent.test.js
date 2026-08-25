@@ -41,6 +41,27 @@ describe("open schedule calendar → event", () => {
     expect(findEventForInsight({ dateTime: "2026-08-15T14:00" }, null, events)?.id).toBe("pending-9");
   });
 
+  it("findEventForInsight does not treat unrelated same-day events as already-on-calendar", () => {
+    // Regression: Credit Saint @ 10:00 falsely blocked 1337 Final Inspection @ 10:30 (2026-08-25).
+    const events = [
+      {
+        id: "2olutojquq5b1up2nvut8m3btc_20260831T140000Z",
+        summary: "Do you still want to keep the accounts active",
+        start: "2026-08-31T10:00",
+      },
+    ];
+    const hit = findEventForInsight(
+      {
+        dateTime: "2026-08-31T10:30",
+        address: "1337 PRESIDENT ST, BROOKLYN, NY 11213",
+        appointmentType: "inspection",
+      },
+      null,
+      events
+    );
+    expect(hit).toBe(null);
+  });
+
   it("stashCalendarPick survives for Today consume", () => {
     stashCalendarPick("ev-99");
     expect(consumeCalendarPick()).toBe("ev-99");
