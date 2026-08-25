@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStoreData } from "../state/store.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
+import SolaProcessorHistory from "../components/SolaProcessorHistory.jsx";
 import { PaymentHistorySheet } from "../components/JobSheets.jsx";
 
 export default function TransactionHistory() {
@@ -44,6 +45,7 @@ export default function TransactionHistory() {
           All company activity — newest first. Colored # opens the job. Row opens the payment or invoice.
         </p>
       </div>
+      <SolaProcessorHistory jobs={allJobs} />
       <CustomerTransactionHistory
         jobs={allJobs}
         fromCust=""
