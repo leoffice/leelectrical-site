@@ -1254,13 +1254,15 @@ export function matchJobForInsight(insight, jobs, minScore = 0.55) {
         insight?.customerNameHint,
         ...extractCustomerNameHints(insightMatchBlob(insight), insight?.source?.to || ""),
       ].filter(Boolean);
-      const toEmails = [
+      // Office To: on a forward is not a customer addressee — only treat
+      // non-office recipient emails / Dear/Customer name hints as identity signal.
+      const customerToEmails = [
         ...extractEmailsFromText(insight?.source?.to || ""),
         ...(insight?.recipientEmails || []),
-      ].filter(Boolean);
-      const hasAddressee = nameHints.length > 0 || toEmails.length > 0;
-      if (hasAddressee) {
-        // Explicit addressee present but identity failed → leave for picker / Change.
+      ].filter((e) => e && !isOfficeOutboundEmail(e));
+      const hasCustomerAddressee = nameHints.length > 0 || customerToEmails.length > 0;
+      if (hasCustomerAddressee) {
+        // Explicit customer addressee present but identity failed → picker / Change.
         return {
           jobId: null,
           score: bestMeta.addressScore,

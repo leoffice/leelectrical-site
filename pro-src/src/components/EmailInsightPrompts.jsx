@@ -198,7 +198,18 @@ function JobPickPanel({ jobs, currentJobId, query, onQuery, onPick, onClose }) {
     .filter((j) => j && !j._archived && !j._deleted)
     .filter((j) => {
       if (!q) return true;
-      const blob = [j.customer, j.businessName, j.serviceAddress, j.address, j.email, j.invoiceNo, j.id]
+      const caseNo = j.conedCaseNumber || j?.paperwork?.coned?.caseNumber || "";
+      const blob = [
+        j.customer,
+        j.businessName,
+        j.serviceAddress,
+        j.address,
+        j.email,
+        j.invoiceNo,
+        j.estimateNo,
+        caseNo,
+        j.id,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
