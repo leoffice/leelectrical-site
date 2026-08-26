@@ -3,15 +3,19 @@ import {
   appendPayment,
   canVoidInQbo,
   fmtPaymentLine,
+  isDepositDrawInvoice,
+  isProgressDrawInvoice,
   movePayment,
   normalizePaymentMethod,
   normalizePayments,
+  progressPaidStatusLabel,
   reconcileBalanceOnAmountChange,
   removePayment,
   remainingBalance,
   updatePayment,
 } from "../src/lib/payments.js";
-import { amountPaid, openBalance } from "../src/lib/customers.js";
+import { amountPaid, fmtAmountDue, isJobFullyPaid, openBalance } from "../src/lib/customers.js";
+import { paymentStatusKind } from "../src/components/JobCard.jsx";
 import {
   formatInvoicePayOption,
   invoicesForCustomerPick,
@@ -369,5 +373,54 @@ describe("payments ledger", () => {
     };
     expect(openBalance(qboPaid)).toBe(0);
     expect(amountPaid(qboPaid)).toBe(25000);
+  });
+});
+
+describe("progress/deposit paid badge (President / LE-2712)", () => {
+  // $4,600 of $9,200 deposit draw — settled face must not say whole-job "Paid in full".
+  const president = {
+    id: "le-2712",
+    invoiceNo: "LE-2712",
+    title: "1337 President — deposit",
+    amount: "$4600",
+    contractAmount: 9200,
+    invoiceProgressBilling: true,
+    invoiceProgressPct: 50,
+    paid: true,
+    openBalance: 0,
+    paymentBaseline: 4600,
+    amountWhenBaselined: 4600,
+    payments: [{ id: "p1", amount: "4600", method: "Zelle", date: "2026-08-01" }],
+    invoiceLines: [{ qty: 0.5, unitPrice: 9200, description: "50% deposit", progressBilling: true }],
+  };
+
+  it("detects progress/deposit draw", () => {
+    expect(isProgressDrawInvoice(president)).toBe(true);
+    expect(isDepositDrawInvoice(president)).toBe(true);
+    expect(isProgressDrawInvoice({ invoiceNo: "1", amount: 100, paid: true, openBalance: 0 })).toBe(
+      false
+    );
+  });
+
+  it("labels settled deposit as Deposit paid in full (not Paid in full)", () => {
+    expect(isJobFullyPaid(president)).toBe(true);
+    expect(progressPaidStatusLabel(president)).toBe("Deposit paid in full");
+    expect(progressPaidStatusLabel(president, { short: true })).toBe("Deposit paid");
+    expect(fmtAmountDue(president)).toBe("Deposit paid");
+    expect(paymentStatusKind(president)).toBe("deposit_paid");
+  });
+
+  it("full-face invoice still says Paid in full", () => {
+    const full = {
+      id: "full",
+      invoiceNo: "9",
+      amount: 9200,
+      paid: true,
+      openBalance: 0,
+      payments: [{ id: "p1", amount: 9200, method: "Cash", date: "2026-08-01" }],
+    };
+    expect(isProgressDrawInvoice(full)).toBe(false);
+    expect(progressPaidStatusLabel(full)).toBe("Paid in full");
+    expect(paymentStatusKind(full)).toBe("paid");
   });
 });

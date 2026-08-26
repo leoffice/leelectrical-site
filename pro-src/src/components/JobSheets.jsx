@@ -159,13 +159,9 @@ export function useDoSend() {
       showToast("Add a customer email before sending");
       return { ok: false, error: "no_email", pending: true };
     }
-    // Keep this email → save on the customer/job before sending.
+    // Keep this email → save on the customer/job (never block send on network).
     if (opts.emailPolicy === EMAIL_POLICY_KEEP && email) {
-      try {
-        await patchAndSave(job.id, { email });
-      } catch {
-        /* send still proceeds with this address */
-      }
+      void Promise.resolve(patchAndSave(job.id, { email })).catch(() => {});
     }
     const due = openBalance(job);
     const withPay =
@@ -212,7 +208,9 @@ export function useDoSend() {
         kind === "invoice" && withPay
           ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
           : "send_" + kind + ":qbo:" + no + ":" + Date.now();
-      await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+      void Promise.resolve(enqueue("send_" + kind, job.id, payload, "deterministic", idk)).catch(
+        () => {}
+      );
       showToast(
         withPay
           ? "Sending " + via + " with payment link — you'll get a toast when it lands"
@@ -3962,12 +3960,12 @@ export function PaymentLinkSheet({ job, onClose }) {
           setPayConfirm(null);
           setPaySendErr("");
         }}
-        onApprove={async (model) => {
+        onApprove={(model) => {
           setPaySendBusy(true);
           setPaySendErr("");
           beginPromptWorkPause();
-          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
-          const result = await doSend(job, "invoice", {
+          // Fire-and-forget: never await network before dismiss (Save+Send lag class).
+          const resultPromise = doSend(job, "invoice", {
             includePaymentLink: true,
             email: model.email,
             docSource: model.docSource,
@@ -3977,12 +3975,14 @@ export function PaymentLinkSheet({ job, onClose }) {
             emailPolicy: model.emailPolicy,
             attachmentRows: model.attachmentRows,
           });
-          if (result?.ok) {
-            await afterSendApprovedClose({ ok: true, onClose });
-            return;
-          }
-          setPaySendBusy(false);
-          setPaySendErr(result?.error || "Send failed — document was not emailed");
+          void Promise.resolve(resultPromise).then(async (result) => {
+            if (result?.ok || result?.sending || result?.queued) {
+              await afterSendApprovedClose({ ok: true, onClose });
+              return;
+            }
+            setPaySendBusy(false);
+            setPaySendErr(result?.error || "Send failed — document was not emailed");
+          });
         }}
       />
     );
@@ -4231,12 +4231,12 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           setConfirmSend(null);
           setSendErr("");
         }}
-        onApprove={async (model) => {
+        onApprove={(model) => {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
-          const result = await doSend(job, kind, {
+          // Fire-and-forget — never await network before dismiss (Save+Send lag class).
+          const resultPromise = doSend(job, kind, {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -4245,13 +4245,15 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             emailPolicy: model.emailPolicy,
             attachmentRows: model.attachmentRows,
           });
-          if (result?.ok) {
-            await afterSendApprovedClose({ ok: true, onClose });
-            return;
-          }
-          // Stay open in pending/not-sent state with a loud error.
-          setSendBusy(false);
-          setSendErr(result?.error || "Send failed — document was not emailed");
+          void Promise.resolve(resultPromise).then(async (result) => {
+            if (result?.ok || result?.sending || result?.queued) {
+              await afterSendApprovedClose({ ok: true, onClose });
+              return;
+            }
+            // Stay open in pending/not-sent state with a loud error.
+            setSendBusy(false);
+            setSendErr(result?.error || "Send failed — document was not emailed");
+          });
         }}
       />
     );
@@ -4514,12 +4516,12 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
           setConfirmSend(null);
           setSendErr("");
         }}
-        onApprove={async (model) => {
+        onApprove={(model) => {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
-          const result = await doSend(job, "invoice", {
+          // Fire-and-forget — never await network before dismiss (Save+Send lag class).
+          const resultPromise = doSend(job, "invoice", {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -4528,12 +4530,14 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             emailPolicy: model.emailPolicy,
             attachmentRows: model.attachmentRows,
           });
-          if (result?.ok) {
-            await afterSendApprovedClose({ ok: true, onClose });
-            return;
-          }
-          setSendBusy(false);
-          setSendErr(result?.error || "Send failed — document was not emailed");
+          void Promise.resolve(resultPromise).then(async (result) => {
+            if (result?.ok || result?.sending || result?.queued) {
+              await afterSendApprovedClose({ ok: true, onClose });
+              return;
+            }
+            setSendBusy(false);
+            setSendErr(result?.error || "Send failed — document was not emailed");
+          });
         }}
       />
     );

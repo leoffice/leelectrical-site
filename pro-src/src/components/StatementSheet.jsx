@@ -170,27 +170,39 @@ export default function StatementSheet({
         return;
       }
 
-      // Keep this email → update customer (primary job record) — non-destructive (only email field).
-      if (confirmModel.emailPolicy === EMAIL_POLICY_KEEP && jobForSend?.id) {
-        try {
-          await patchAndSave(jobForSend.id, { email });
-        } catch {
-          /* send still proceeds */
-        }
-      }
-
-      const blob = await buildPdf();
-      const pdfB64 = await blobToBase64(blob);
-      const payload = buildStatementEmailPayload(model, {
-        email,
-        subject: confirmModel.subject,
-        message: confirmModel.message,
-        pdfB64,
+      // Snappy: close confirm + sheet immediately; PDF + email run in background
+      // (same anti-pattern as Save+Send — was waiting on network before dismiss).
+      showToast("Sending statement to " + email + "…");
+      void afterSendApprovedClose({
+        ok: true,
+        onClose: () => {
+          setEmailOpen(false);
+          onClose?.();
+        },
       });
+      setSendBusy(false);
 
-      let result = null;
-      if (typeof api?.sendDocEmailNow === "function") {
-        result = await api.sendDocEmailNow(jobForSend, "statement", {
+      const runBg = async () => {
+        // Keep this email → update customer (non-blocking best-effort).
+        if (confirmModel.emailPolicy === EMAIL_POLICY_KEEP && jobForSend?.id) {
+          void patchAndSave(jobForSend.id, { email }).catch(() => {});
+        }
+
+        const blob = await buildPdf();
+        const pdfB64 = await blobToBase64(blob);
+        const payload = buildStatementEmailPayload(model, {
+          email,
+          subject: confirmModel.subject,
+          message: confirmModel.message,
+          pdfB64,
+        });
+
+        if (typeof api?.sendDocEmailNow !== "function") {
+          showToast("Statement PDF ready — email send is not available right now");
+          return;
+        }
+
+        const result = await api.sendDocEmailNow(jobForSend, "statement", {
           email,
           subject: payload.subject,
           message: payload.message,
@@ -199,40 +211,22 @@ export default function StatementSheet({
           statement: payload.statement,
           includePaymentLink: false,
         });
-      } else {
-        setSendError("Email send is not available right now.");
-        setSendBusy(false);
-        return;
-      }
 
-      if (!result?.ok) {
-        const reason = result?.error || result?.reason || "send_failed";
-        // Dry-run / missing key still counts as a soft success for office testing.
-        if (result?.dryRun || reason === "no_api_key") {
-          showToast("Statement ready — email path is test-mode (no live send key). PDF is fine.");
-          await afterSendApprovedClose({
-            ok: true,
-            onClose: () => {
-              setEmailOpen(false);
-              onClose?.();
-            },
-          });
-          setSendBusy(false);
+        if (!result?.ok) {
+          const reason = result?.error || result?.reason || "send_failed";
+          if (result?.dryRun || reason === "no_api_key") {
+            showToast("Statement ready — email path is test-mode (no live send key). PDF is fine.");
+            return;
+          }
+          showToast("Statement did NOT send — " + String(reason).slice(0, 80));
           return;
         }
-        setSendError(String(reason));
-        setSendBusy(false);
-        return;
-      }
-
-      showToast("Statement sent to " + email);
-      await afterSendApprovedClose({
-        ok: true,
-        onClose: () => {
-          setEmailOpen(false);
-          onClose?.();
-        },
+        showToast("Statement sent to " + email);
+      };
+      runBg().catch((err) => {
+        showToast("Statement send hit a snag — " + String(err?.message || err).slice(0, 60));
       });
+      return;
     } catch (err) {
       setSendError(String(err?.message || err));
     } finally {

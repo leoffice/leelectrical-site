@@ -69,6 +69,59 @@ export function isProgressInvoiceJob(job) {
   return false;
 }
 
+/**
+ * True only for a real progress/deposit draw (partial % of contract) — not every
+ * estimate-linked full-face invoice. Used for UI wording so a paid 50% draw
+ * says "Deposit paid in full", not green "Paid in full" (President / LE-2712).
+ */
+export function isProgressDrawInvoice(job) {
+  if (!job) return false;
+  if (job.invoiceProgressBilling) return true;
+  const pct = Number(job.invoiceProgressPct);
+  if (Number.isFinite(pct) && pct > 0 && pct < 99.99) return true;
+  const lines = job.invoiceLines || [];
+  if (
+    lines.some((ln) => {
+      const q = parseAmount(ln?.qty);
+      return !!ln?.progressBilling || (q > 0 && q < 0.999);
+    })
+  ) {
+    return true;
+  }
+  const contract = parseAmount(job.contractAmount) || 0;
+  const inv = invoiceTotal(job) || 0;
+  if (contract > 0 && inv > 0 && inv < contract * 0.999) return true;
+  return false;
+}
+
+/** Prefer "Deposit" for ~50% / deposit-titled draws; else "Progress payment". */
+export function isDepositDrawInvoice(job) {
+  if (!isProgressDrawInvoice(job)) return false;
+  const pct = Number(job.invoiceProgressPct);
+  if (Number.isFinite(pct) && pct > 0 && pct <= 55) return true;
+  const hay = [
+    job?.title,
+    ...(job?.invoiceLines || []).flatMap((ln) => [ln?.description, ln?.itemName]),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return /deposit/i.test(hay);
+}
+
+/**
+ * Status chip / status row copy when this invoice face is settled.
+ * @param {{ short?: boolean }} opts — short → AmountDisplay ("Deposit paid"); else full phrase.
+ */
+export function progressPaidStatusLabel(job, { short = false } = {}) {
+  if (!isProgressDrawInvoice(job)) {
+    return short ? "Paid" : "Paid in full";
+  }
+  if (isDepositDrawInvoice(job)) {
+    return short ? "Deposit paid" : "Deposit paid in full";
+  }
+  return short ? "Progress paid" : "Progress payment paid in full";
+}
+
 /** Frozen baseline before any LE Pro payments, adjusted when invoice total changes. */
 function frozenBaseline(job, payments) {
   if (job?.paymentBaseline != null && job.paymentBaseline !== "") {

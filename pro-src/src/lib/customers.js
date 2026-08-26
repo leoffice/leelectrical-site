@@ -18,8 +18,11 @@ import {
   totalPaid,
   amountOwedAtStart,
   isProgressInvoiceJob,
+  isProgressDrawInvoice,
+  progressPaidStatusLabel,
   parseBalanceFromNotes,
 } from "./payments.js";
+export { isProgressDrawInvoice, progressPaidStatusLabel } from "./payments.js";
 
 /** True when a job is an actual invoice (has an invoice #). Estimates/leads are not. */
 export function isInvoiceJob(job) {
@@ -301,7 +304,11 @@ export function fmtAmountDue(job) {
   // Balance is truth — never show "Paid" while money is still open.
   const n = openBalance(job);
   if (n > 0.01) return fmt$(n);
-  if (isJobFullyPaid(job) || job.paid) return "Paid";
+  if (isJobFullyPaid(job) || job.paid) {
+    // Progress/deposit draw settled → not "Paid" (whole contract still open).
+    if (isProgressDrawInvoice(job)) return progressPaidStatusLabel(job, { short: true });
+    return "Paid";
+  }
   return n > 0 ? fmt$(n) : "";
 }
 

@@ -8,6 +8,8 @@ import {
   isJobFullyPaid,
   paidPct,
 } from "../lib/customers.js";
+import { isProgressDrawInvoice, progressPaidStatusLabel } from "../lib/payments.js";
+import { contractTotalForJob } from "../lib/progressBilling.js";
 import { serviceAddressDisplay } from "../lib/customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$, parseAmount } from "../lib/format.js";
@@ -106,10 +108,16 @@ export default function JobInfoCard({
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
 
   // Balance is truth — never "Paid in full" while openBalance > 0 (Beth Rivkah #251825).
+  // Progress/deposit draws that settled this invoice still leave contract unbilled
+  // (President / LE-2712) — say "Deposit paid in full", not whole-job paid.
   const fullyPaid = isJobFullyPaid(job);
+  const progressDraw = isProgressDrawInvoice(job);
+  const paidStatusLabel = fullyPaid ? progressPaidStatusLabel(job) : null;
   // % paid / paid status row hosts the Transaction History toggle (Levi: condensed).
-  const pctLabel = total > 0 && !fullyPaid ? pct + "%" : fullyPaid ? "Paid in full" : null;
+  const pctLabel = total > 0 && !fullyPaid ? pct + "%" : paidStatusLabel;
   const pctKey = total > 0 && !fullyPaid ? "% paid" : fullyPaid ? "Status" : null;
+  const contract = contractTotalForJob(job) || parseAmount(job.contractAmount) || 0;
+  const unbilled = progressDraw && contract > total + 0.01 ? contract - total : 0;
 
   const rows = [
     svc ? ["Service address", svc] : null,
@@ -120,6 +128,10 @@ export default function JobInfoCard({
     job.linkedPermitJobId ? ["Linked permit", "Connected"] : null,
     job.linkedInvoiceNo && !job.invoiceNo ? ["Linked invoice", "#" + job.linkedInvoiceNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
+    // Contract remainder stays gray / not-billed — never look like whole job paid.
+    unbilled > 0.01
+      ? ["Contract", { text: `${fmt$(contract)} · ${fmt$(unbilled)} not billed yet`, muted: true }]
+      : null,
     // Surface invoice discount so mobile users see the credit stuck (Levi 2026-08-11).
     parseAmount(job?.discount) > 0.01
       ? [
@@ -250,10 +262,12 @@ export default function JobInfoCard({
       {(rows.length > 0 || showToggleBlock) && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
           {rows.map(([k, v]) => {
+            const muted = v && typeof v === "object" && v.muted;
+            const text = muted ? v.text : v;
             const hl =
               highlightInvoiceNo &&
               (k === "Invoice" || k === "Linked invoice") &&
-              String(v).replace(/^#/, "") === String(highlightInvoiceNo).replace(/^#/, "");
+              String(text).replace(/^#/, "") === String(highlightInvoiceNo).replace(/^#/, "");
             return (
               <div
                 key={k}
@@ -262,14 +276,27 @@ export default function JobInfoCard({
                   (hl ? "bg-sky-100/70 ring-1 ring-sky-200/80" : "")
                 }
                 data-hl-invoice={hl ? "1" : undefined}
+                data-testid={k === "Contract" ? "job-contract-row" : undefined}
               >
-                <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-                <dd
+                <dt
                   className={
-                    "break-words min-w-0 " + (hl ? "text-sky-900 font-semibold text-sm" : "text-slate-500")
+                    "font-semibold shrink-0 w-[5.5rem] lg:w-32 " +
+                    (muted ? "text-slate-400" : "text-slate-800")
                   }
                 >
-                  {v}
+                  {k}
+                </dt>
+                <dd
+                  className={
+                    "break-words min-w-0 " +
+                    (hl
+                      ? "text-sky-900 font-semibold text-sm"
+                      : muted
+                        ? "text-slate-400"
+                        : "text-slate-500")
+                  }
+                >
+                  {text}
                 </dd>
               </div>
             );
@@ -287,7 +314,19 @@ export default function JobInfoCard({
                 </dt>
               ) : null}
               {pctKey ? (
-                <dd className="text-slate-500 break-words min-w-0 flex-1">{pctLabel}</dd>
+                <dd
+                  className={
+                    "break-words min-w-0 flex-1 " +
+                    (fullyPaid && progressDraw
+                      ? "text-emerald-700 font-semibold"
+                      : fullyPaid
+                        ? "text-emerald-700 font-semibold"
+                        : "text-slate-500")
+                  }
+                  data-testid="job-paid-status"
+                >
+                  {pctLabel}
+                </dd>
               ) : (
                 <div className="flex-1 min-w-0" />
               )}

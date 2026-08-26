@@ -115,4 +115,36 @@ describe("JobInfoCard transaction history toggle", () => {
     expect(screen.queryByText(/Requisition flow/i)).toBeNull();
     expect(screen.queryByText("Payment history")).toBeNull();
   });
+
+  it("settled 50% deposit shows Deposit paid in full + gray not billed yet (LE-2712)", () => {
+    const job = {
+      id: "le-2712",
+      customer: "1337 President",
+      title: "Deposit",
+      invoiceNo: "LE-2712",
+      amount: 4600,
+      contractAmount: 9200,
+      invoiceProgressBilling: true,
+      invoiceProgressPct: 50,
+      paid: true,
+      openBalance: 0,
+      payments: [{ id: "p1", amount: 4600, method: "Zelle", date: "2026-08-01" }],
+      invoiceLines: [{ qty: 0.5, unitPrice: 9200, description: "50% deposit" }],
+    };
+    render(
+      <JobInfoCard
+        job={job}
+        jobTxns={false}
+        onJobTxnsChange={() => {}}
+        onEstimate={() => {}}
+        onInvoice={() => {}}
+        onCalendar={() => {}}
+      />
+    );
+    expect(screen.getByTestId("job-paid-status")).toHaveTextContent("Deposit paid in full");
+    expect(screen.queryByText("Paid in full")).toBeNull();
+    const contract = screen.getByTestId("job-contract-row");
+    expect(contract).toHaveTextContent(/not billed yet/i);
+    expect(contract).toHaveTextContent(/9,?200/);
+  });
 });

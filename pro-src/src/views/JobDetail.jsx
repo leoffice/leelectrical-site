@@ -71,7 +71,7 @@ import {
   paidPct,
 } from "../lib/customers.js";
 import { touchCustomer } from "../lib/customerRecency.js";
-import { movePayment, normalizePayments } from "../lib/payments.js";
+import { movePayment, normalizePayments, progressPaidStatusLabel } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
@@ -1431,7 +1431,10 @@ export default function JobDetail() {
                           · <span className="text-amber-800">{fmt$(due)} open</span>
                         </>
                       ) : (
-                        <span className="text-emerald-700"> · Paid in full</span>
+                        <span className="text-emerald-700" data-testid="payhist-paid-status">
+                          {" "}
+                          · {progressPaidStatusLabel(job)}
+                        </span>
                       )}
                     </>
                   ) : due > 0.01 ? (
@@ -2421,11 +2424,12 @@ export default function JobDetail() {
             setSheet(null);
             setWorkCompleteSendErr("");
           }}
-          onApprove={async (model) => {
+          onApprove={(model) => {
             setWorkCompleteSendBusy(true);
             setWorkCompleteSendErr("");
             beginPromptWorkPause();
-            const result = await doSend(job, "invoice", {
+            // Fire-and-forget — never await network before dismiss (Save+Send lag class).
+            const resultPromise = doSend(job, "invoice", {
               includePaymentLink: model.withPay,
               email: model.email,
               docSource: model.docSource,
@@ -2434,20 +2438,20 @@ export default function JobDetail() {
               emailPolicy: model.emailPolicy,
               attachmentRows: model.attachmentRows,
             });
-            if (result?.ok) {
-              try {
-                await patchAndSave(job.id, {
-                  workCompleteCustomerNotifiedAt: new Date().toISOString(),
-                });
-              } catch {
-                /* non-fatal */
+            void Promise.resolve(resultPromise).then(async (result) => {
+              if (result?.ok || result?.sending || result?.queued) {
+                void Promise.resolve(
+                  patchAndSave(job.id, {
+                    workCompleteCustomerNotifiedAt: new Date().toISOString(),
+                  })
+                ).catch(() => {});
+                await afterSendApprovedClose({ ok: true, onClose: () => setSheet(null) });
+                setWorkCompleteSendBusy(false);
+                return;
               }
-              await afterSendApprovedClose({ ok: true, onClose: () => setSheet(null) });
               setWorkCompleteSendBusy(false);
-              return;
-            }
-            setWorkCompleteSendBusy(false);
-            setWorkCompleteSendErr(result?.error || "Send failed — nothing was emailed");
+              setWorkCompleteSendErr(result?.error || "Send failed — nothing was emailed");
+            });
           }}
         />
       ) : null}

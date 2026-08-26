@@ -8,7 +8,9 @@ import {
   openBalance,
   paidPct,
 } from "../lib/customers.js";
-import { fmt$ } from "../lib/format.js";
+import { isProgressDrawInvoice } from "../lib/payments.js";
+import { contractTotalForJob } from "../lib/progressBilling.js";
+import { fmt$, parseAmount } from "../lib/format.js";
 
 const SIZE = {
   sm: { main: "font-bold text-sm text-slate-900 lg:text-base", sub: "text-[8px]" },
@@ -22,13 +24,27 @@ export function AmountSubline({ job, className = "" }) {
   const paid = amountPaid(job);
   const pct = paidPct(job);
   const fullyPaid = isJobFullyPaid(job);
+  const contract = contractTotalForJob(job) || parseAmount(job?.contractAmount) || 0;
+  const unbilled =
+    isProgressDrawInvoice(job) && contract > total + 0.01 ? contract - total : 0;
+  // Unbilled contract remainder stays muted gray — not "whole job billed/paid".
+  const contractBit =
+    unbilled > 0.01 ? (
+      <span className="text-slate-300"> · {fmt$(contract)} contract ({fmt$(unbilled)} not billed yet)</span>
+    ) : null;
   if (fullyPaid) {
-    return <div className={`text-slate-400 leading-tight mt-0.5 ${className}`}>{fmt$(total)} invoiced</div>;
+    return (
+      <div className={`text-slate-400 leading-tight mt-0.5 ${className}`} data-testid="amount-subline">
+        {fmt$(total)} invoiced
+        {contractBit}
+      </div>
+    );
   }
   const paidPart = paid > 0 ? ` · ${fmt$(paid)} paid (${pct}%)` : "";
   return (
-    <div className={`text-slate-400 leading-tight mt-0.5 ${className}`}>
+    <div className={`text-slate-400 leading-tight mt-0.5 ${className}`} data-testid="amount-subline">
       {fmt$(total)} invoiced{paidPart}
+      {contractBit}
     </div>
   );
 }

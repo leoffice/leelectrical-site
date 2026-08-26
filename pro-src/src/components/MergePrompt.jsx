@@ -300,20 +300,23 @@ export default function MergePrompt() {
     persistDismissed(api);
   };
 
-  const combine = async () => {
+  const combine = () => {
     if (busy) return;
     setBusy(true);
     const all = [...sug.a.jobs, ...sug.b.jobs];
     const grp = all.map((j) => j.clientGroup).find(Boolean) || "grp" + Date.now();
-    for (const j of all) await patchAndSave(j.id, { clientGroup: grp });
+    // Parallel + fire-and-forget — serial await patchAndSave blocked the UI.
     rememberPair();
-    setBusy(false);
     setMode("prompt");
     setTick((t) => t + 1);
     showToast("Jobs grouped under one client");
+    setBusy(false);
+    void Promise.all(
+      all.map((j) => Promise.resolve(patchAndSave(j.id, { clientGroup: grp })).catch(() => {}))
+    );
   };
 
-  const linkSubCompany = async () => {
+  const linkSubCompany = () => {
     if (busy) return;
     setBusy(true);
     const leftProfile = customerProfileFromJobs(sug.a.jobs, sug.a.name);
@@ -326,17 +329,22 @@ export default function MergePrompt() {
       qboCustomerId: parentProfile.qboCustomerId,
     });
 
-    for (const j of subJobs) {
-      await patchAndSave(j.id, parentPatch);
-      const updated = { ...j, ...parentPatch };
-      enqueueCustomerQboSync(enqueue, j.id, updated, updated.qboCustomerId);
-    }
-
+    // Optimistic dismiss; parallel saves in background (was serial await loop).
     rememberPair();
-    setBusy(false);
     setMode("prompt");
     setTick((t) => t + 1);
     showToast("Sub company linked — syncing to QuickBooks…");
+    setBusy(false);
+    void Promise.all(
+      subJobs.map((j) =>
+        Promise.resolve(patchAndSave(j.id, parentPatch))
+          .then(() => {
+            const updated = { ...j, ...parentPatch };
+            enqueueCustomerQboSync(enqueue, j.id, updated, updated.qboCustomerId);
+          })
+          .catch(() => {})
+      )
+    );
   };
 
   const askLater = () => {

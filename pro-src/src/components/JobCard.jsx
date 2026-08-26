@@ -9,7 +9,12 @@ import {
 } from "../lib/customers.js";
 import { jobInvoiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
-import { isProgressInvoiceJob, totalPaid, normalizePayments } from "../lib/payments.js";
+import {
+  isProgressDrawInvoice,
+  progressPaidStatusLabel,
+  totalPaid,
+  normalizePayments,
+} from "../lib/payments.js";
 import AmountDisplay from "./AmountDisplay.jsx";
 
 export function StagePill({ job }) {
@@ -33,26 +38,20 @@ export function StagePill({ job }) {
 
 /**
  * Levi 2026-08-05: progress invoices (qty 0.5 / 50%) must not show solid Paid.
- * Use Partially paid (amber). Only true progress draws — not every invoice that
- * once had estimate lines (that was painting full pays as partial).
+ * Settled draw → "deposit_paid" (Deposit / Progress paid in full). Still-open
+ * draw with money applied → "partial". Only true progress draws — not every
+ * invoice that once had estimate lines (that was painting full pays as partial).
  */
 export function paymentStatusKind(job) {
   if (!job) return "unpaid";
   // Face due — provisional unpaid renews still show the fee (not rollup $0)
   const due = faceOpenBalance(job);
   const paidAmt = totalPaid(normalizePayments(job));
-  const pct = Number(job.invoiceProgressPct);
-  const partialQty = (job.invoiceLines || []).some((ln) => {
-    const q = Number(ln?.qty);
-    return Number.isFinite(q) && q > 0 && q < 0.999;
-  });
-  const isProgressDraw =
-    !!job.invoiceProgressBilling ||
-    partialQty ||
-    (Number.isFinite(pct) && pct > 0 && pct < 99.99);
-  // Progress draw settled for this invoice → still "partially paid" (not full contract).
+  const isProgressDraw = isProgressDrawInvoice(job);
+  // Progress draw settled for this invoice → deposit/progress paid (not full contract).
   if (isProgressDraw) {
-    if (paidAmt > 0.01 || job.paid || due <= 0.01) return "partial";
+    if (due <= 0.01 && (paidAmt > 0.01 || job.paid)) return "deposit_paid";
+    if (paidAmt > 0.01) return "partial";
     return "unpaid";
   }
   if (isPaid(job) || (job.paid && due <= 0.01) || (due <= 0.01 && paidAmt > 0.01)) {
@@ -66,6 +65,16 @@ export function PaidPill({ job }) {
   const kind = paymentStatusKind(job);
   if (kind === "paid") {
     return <span className="pill bg-emerald-500 text-white">Paid ✓</span>;
+  }
+  if (kind === "deposit_paid") {
+    return (
+      <span
+        className="pill bg-emerald-100 text-emerald-800 border border-emerald-200"
+        data-testid="deposit-paid-pill"
+      >
+        {progressPaidStatusLabel(job, { short: true })}
+      </span>
+    );
   }
   if (kind === "partial") {
     return (
@@ -132,9 +141,11 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to, leadWithDoc = fa
           ? `${age}d`
           : paymentStatusKind(job) === "paid"
             ? "Paid"
-            : paymentStatusKind(job) === "partial"
-              ? "Partially paid"
-              : cur,
+            : paymentStatusKind(job) === "deposit_paid"
+              ? progressPaidStatusLabel(job, { short: true })
+              : paymentStatusKind(job) === "partial"
+                ? "Partially paid"
+                : cur,
         docBit,
         leadWithDoc && job.title && job.title !== invLabel && job.title !== estLabel ? job.title : null,
       ]
