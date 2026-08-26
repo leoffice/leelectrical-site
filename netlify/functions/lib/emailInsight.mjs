@@ -791,7 +791,14 @@ export function appointmentTypeLabel(type, agency = "") {
   return base;
 }
 
-export function parseEmailInsight({ from = "", subject = "", body = "", receivedAt = "", messageId = "" }) {
+export function parseEmailInsight({
+  from = "",
+  to = "",
+  subject = "",
+  body = "",
+  receivedAt = "",
+  messageId = "",
+}) {
   const plainBody = stripHtml(body);
   const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
@@ -807,6 +814,10 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const appointmentType = noSchedule ? "other" : classifyAppointmentType(blob, schedule.timeWindow);
   const agency = classifyAgency(from, subject, plainBody);
   const dobJobNumber = extractDobJobNumber(blob);
+  const conedCaseNumber = extractConedCaseNumber(blob) || "";
+  const toHeader = String(to || "").trim();
+  const recipientEmails = extractEmailsFromText(toHeader);
+  const customerNameHints = extractCustomerNameHints(blob, toHeader);
   const fromLabel =
     agency === "city"
       ? "City / DOB"
@@ -822,6 +833,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   if (schedule.timeWindow) summaryParts.push(`(${schedule.timeWindow.text.replace(/\.$/, "")})`);
   summaryParts.push(`for ${appointmentTypeLabel(appointmentType, agency)}`);
   if (dobJobNumber) summaryParts.push(`(job ${dobJobNumber})`);
+  if (conedCaseNumber) summaryParts.push(`(${conedCaseNumber})`);
   if (outcome === "cancelled") summaryParts.push("(cancelled)");
   if (outcome === "completed") summaryParts.push("(completed)");
   if (outcome === "reminder") summaryParts.push("(reminder only — not a new set)");
@@ -835,6 +847,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
     source: {
       type: "email",
       from: String(from || "").trim(),
+      to: toHeader,
       fromLabel,
       subject: String(subject || "").trim(),
       receivedAt: receivedAt || new Date().toISOString(),
@@ -849,10 +862,16 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
     endDateTime: schedule.endDateTime || "",
     timeWindow: schedule.timeWindow || null,
     dobJobNumber: dobJobNumber || "",
+    conedCaseNumber,
+    recipientEmails,
+    customerNameHints,
+    customerNameHint: customerNameHints[0] || "",
     summary: summaryParts.join(" "),
     emailSnippet: plainBody.slice(0, 400).trim() || String(subject || "").slice(0, 200),
     jobId: null,
     jobMatchScore: 0,
+    matchPoints: 0,
+    matchEvidence: null,
     proposedActions: [],
   };
 }
@@ -962,90 +981,305 @@ export function extractConedCaseNumber(text) {
   return m ? m[1].toUpperCase() : "";
 }
 
-export function matchJobForInsight(insight, jobs, minScore = 0.55) {
+/** Invoice / estimate / LE-#### tokens from email text. */
+export function extractDocNumbers(text) {
+  const s = String(text || "");
+  const out = new Set();
+  const patterns = [
+    /\b(?:invoice|inv|estimate|est|doc(?:ument)?(?:\s*#)?)\s*[#:]?\s*([A-Z]{0,3}-?\d{4,})\b/gi,
+    /\b(LE-\d{3,})\b/gi,
+    /\b(?:#|No\.?\s*)(\d{5,6})\b/g,
+  ];
+  for (const re of patterns) {
+    let m;
+    while ((m = re.exec(s))) {
+      const raw = String(m[1] || "").trim().toUpperCase();
+      if (raw) out.add(raw.replace(/^0+/, "") || raw);
+    }
+  }
+  return [...out];
+}
+
+function normalizePersonName(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9& ]+/g, " ")
+    .replace(/\b(inc|llc|corp|co|the|and)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function nameSimilarity(a, b) {
+  const na = normalizePersonName(a);
+  const nb = normalizePersonName(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.9;
+  const ta = new Set(na.split(" ").filter((w) => w.length > 1));
+  const tb = new Set(nb.split(" ").filter((w) => w.length > 1));
+  if (!ta.size || !tb.size) return 0;
+  let overlap = 0;
+  for (const w of ta) if (tb.has(w)) overlap++;
+  return overlap / Math.max(ta.size, tb.size);
+}
+
+/** Pull emails from a To/Cc header or free text. */
+export function extractEmailsFromText(text) {
+  const s = String(text || "");
+  const out = [];
+  const re = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+  let m;
+  while ((m = re.exec(s))) {
+    const e = m[0].toLowerCase();
+    if (!out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+/**
+ * Customer name hints from Dear … / Customer: … / Account Name: …
+ * and display-names in To: headers ("Goodness and kindness" <x@y.com>).
+ */
+export function extractCustomerNameHints(text, toHeader = "") {
+  const hints = [];
+  const blob = String(text || "");
+  const push = (v) => {
+    const t = String(v || "").replace(/\s+/g, " ").trim();
+    if (t && t.length >= 3 && !hints.some((h) => h.toLowerCase() === t.toLowerCase())) hints.push(t);
+  };
+  for (const re of [
+    /\bdear\s+([^,\n\r]{3,60})/gi,
+    /\bcustomer\s*[:\-]\s*([^\n\r]{3,60})/gi,
+    /\baccount\s+name\s*[:\-]\s*([^\n\r]{3,60})/gi,
+    /\battention\s*[:\-]\s*([^\n\r]{3,60})/gi,
+  ]) {
+    let m;
+    while ((m = re.exec(blob))) push(m[1]);
+  }
+  const to = String(toHeader || "");
+  const named = [...to.matchAll(/"([^"]{3,80})"|([^,<"]{3,80})\s*</g)];
+  for (const m of named) push(m[1] || m[2]);
+  return hints;
+}
+
+function insightMatchBlob(insight) {
+  return [
+    insight?.conedCaseNumber,
+    insight?.source?.subject,
+    insight?.source?.to,
+    insight?.emailSnippet,
+    insight?.summary,
+    insight?.customerNameHint,
+    ...(insight?.customerNameHints || []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function jobDocTokens(job) {
+  const out = new Set();
+  const push = (v) => {
+    const raw = String(v || "").trim().toUpperCase();
+    if (!raw) return;
+    out.add(raw);
+    out.add(raw.replace(/^0+/, "") || raw);
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length >= 4) out.add(digits);
+  };
+  push(job?.invoiceNo);
+  push(job?.DocNumber);
+  push(job?.docNumber);
+  push(job?.estimateNo);
+  push(job?.estimateNumber);
+  push(job?.docNo);
+  push(job?.number);
+  // qbo-est-201963 / qbo-251720 style ids
+  const id = String(job?.id || "");
+  const idNum = id.match(/(?:est-|inv-)?(\d{4,})$/i);
+  if (idNum) push(idNum[1]);
+  return out;
+}
+
+function jobCaseNumber(job) {
+  return String(job?.conedCaseNumber || job?.paperwork?.coned?.caseNumber || "").toUpperCase();
+}
+
+/**
+ * Three verification points (Levi 2026-08-26):
+ *  1. Address
+ *  2. Identity — customer name addressed-to / To: email
+ *  3. Document — Con Ed case # or existing invoice/estimate #
+ * Prefer 2+ points; never crown address-only as a perfect match when another job shares the street.
+ */
+export function scoreJobVerification(insight, job) {
   const addr = insight?.address || "";
+  const blob = insightMatchBlob(insight);
   const caseNo =
-    extractConedCaseNumber(
-      [
-        insight?.conedCaseNumber,
-        insight?.source?.subject,
-        insight?.emailSnippet,
-        insight?.summary,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    ) || "";
-  // Exact Con Ed case on the job wins over address-only (Levi 2026-08-25:
-  // MC-941580 at 1337 President matched an old Lamp Lighter invoice at same street).
-  if (caseNo) {
-    const byCase = (jobs || []).filter(
-      (j) =>
-        !j?._archived &&
-        !j?._deleted &&
-        String(j?.conedCaseNumber || j?.paperwork?.coned?.caseNumber || "").toUpperCase() === caseNo
-    );
-    if (byCase.length === 1) {
-      return { jobId: byCase[0].id, score: 1, job: byCase[0] };
-    }
-    if (byCase.length > 1 && addr) {
-      let best = null;
-      let bestScore = 0;
-      for (const j of byCase) {
-        const candidates = [j.serviceAddress, j.address, j.billingAddress].filter(Boolean);
-        for (const c of candidates) {
-          const score = addressSimilarity(addr, c);
-          if (score > bestScore) {
-            bestScore = score;
-            best = j;
-          }
-        }
-      }
-      if (best) return { jobId: best.id, score: Math.max(bestScore, 0.95), job: best };
-      const ranked = [...byCase].sort((a, b) => {
-        const rank = (j) =>
-          (String(j.id || "").startsWith("local-") ? 4 : 0) +
-          (Number(j.openBalance) > 0 ? 2 : 0) +
-          (j.paid ? 0 : 1);
-        return rank(b) - rank(a);
-      });
-      return { jobId: ranked[0].id, score: 0.95, job: ranked[0] };
+    extractConedCaseNumber(blob) ||
+    String(insight?.conedCaseNumber || "").toUpperCase() ||
+    "";
+  const docNums = extractDocNumbers(blob);
+  const toEmails = [
+    ...extractEmailsFromText(insight?.source?.to || ""),
+    ...extractEmailsFromText(insight?.recipientEmails?.join?.(" ") || ""),
+  ];
+  const nameHints = [
+    ...(insight?.customerNameHints || []),
+    insight?.customerNameHint,
+    ...extractCustomerNameHints(blob, insight?.source?.to || ""),
+  ].filter(Boolean);
+
+  const addrCandidates = [job?.serviceAddress, job?.address, job?.billingAddress].filter(Boolean);
+  let addressScore = 0;
+  for (const c of addrCandidates) {
+    addressScore = Math.max(addressScore, addressSimilarity(addr, c));
+  }
+  const addressOk = addressScore >= 0.55;
+
+  const jobEmails = extractEmailsFromText(job?.email || "");
+  let emailOk = false;
+  for (const je of jobEmails) {
+    if (toEmails.includes(je)) emailOk = true;
+    // Body sometimes repeats the customer mailbox.
+    if (extractEmailsFromText(blob).includes(je)) emailOk = true;
+  }
+  let nameScore = 0;
+  const jobNames = [job?.customer, job?.businessName, job?.billTo].filter(Boolean);
+  for (const hint of nameHints) {
+    for (const jn of jobNames) {
+      nameScore = Math.max(nameScore, nameSimilarity(hint, jn));
     }
   }
-  if (!addr) return { jobId: null, score: 0, job: null };
+  const identityOk = emailOk || nameScore >= 0.6;
+
+  const jobCase = jobCaseNumber(job);
+  const caseOk = !!(caseNo && jobCase && caseNo === jobCase);
+  const jobDocs = jobDocTokens(job);
+  let invoiceOk = false;
+  for (const d of docNums) {
+    if (jobDocs.has(d) || jobDocs.has(d.replace(/\D/g, ""))) invoiceOk = true;
+  }
+  const documentOk = caseOk || invoiceOk;
+
+  const points = (addressOk ? 1 : 0) + (identityOk ? 1 : 0) + (documentOk ? 1 : 0);
+  // Weighted score: document + identity dominate street-only collisions (Lamp Lighter vs Goodness).
+  let score =
+    (addressOk ? 0.45 * addressScore : 0) +
+    (emailOk ? 0.4 : nameScore >= 0.6 ? 0.35 * nameScore : 0) +
+    (caseOk ? 0.45 : invoiceOk ? 0.35 : 0);
+  if (points === 1 && addressOk) score = Math.max(score, addressScore);
+  if (points === 1 && identityOk && !addressOk) score = Math.max(score, emailOk ? 0.72 : 0.65);
+  if (points === 1 && documentOk && !addressOk) score = Math.max(score, caseOk ? 0.9 : 0.75);
+  if (points >= 2) score = Math.max(score, 0.78 + 0.07 * points);
+  if (points >= 3) score = Math.max(score, 0.98);
+  if (caseOk && (addressOk || identityOk)) score = Math.max(score, 0.97);
+  // Prefer open / local when scores otherwise tie.
+  const tieBreak =
+    (String(job?.id || "").startsWith("local-") ? 0.015 : 0) +
+    (Number(job?.openBalance) > 0 ? 0.01 : 0) -
+    (job?.paid ? 0.02 : 0);
+  return {
+    addressOk,
+    identityOk,
+    documentOk,
+    addressScore,
+    nameScore,
+    emailOk,
+    caseOk,
+    invoiceOk,
+    points,
+    score: Math.min(1, score + tieBreak),
+    evidence: {
+      address: addressOk,
+      identity: identityOk,
+      document: documentOk,
+    },
+  };
+}
+
+export function matchJobForInsight(insight, jobs, minScore = 0.55) {
+  const list = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  if (!list.length) return { jobId: null, score: 0, job: null, points: 0, evidence: null };
+
   let best = null;
-  let bestScore = 0;
-  for (const j of jobs || []) {
-    if (j._archived || j._deleted) continue;
-    const candidates = [j.serviceAddress, j.address, j.billingAddress].filter(Boolean);
-    for (const c of candidates) {
-      let score = addressSimilarity(addr, c);
-      if (
-        caseNo &&
-        String(j?.conedCaseNumber || j?.paperwork?.coned?.caseNumber || "").toUpperCase() === caseNo
-      ) {
-        score = Math.min(1, score + 0.25);
+  let bestMeta = null;
+  for (const j of list) {
+    const meta = scoreJobVerification(insight, j);
+    if (!bestMeta || meta.score > bestMeta.score || (meta.score === bestMeta.score && meta.points > bestMeta.points)) {
+      best = j;
+      bestMeta = meta;
+    }
+  }
+  if (!best || !bestMeta) return { jobId: null, score: 0, job: null, points: 0, evidence: null };
+
+  // Need at least one solid point; address-only must clear minScore.
+  if (bestMeta.points === 0) {
+    return { jobId: null, score: bestMeta.score, job: null, points: 0, evidence: bestMeta.evidence };
+  }
+  if (bestMeta.points === 1 && bestMeta.addressOk && bestMeta.addressScore < minScore) {
+    return { jobId: null, score: bestMeta.addressScore, job: null, points: 1, evidence: bestMeta.evidence };
+  }
+  // Address-only: if another job has 2+ points, prefer it (Lamp Lighter street vs Goodness case/email).
+  // If several jobs share a similar street score and none has a 2nd point, leave unmatched for picker.
+  // If the email names a customer/addressee that does not agree with this job, reject address-only
+  // (Levi 2026-08-26: NOT just any job that shares a similar address).
+  if (bestMeta.points === 1 && bestMeta.addressOk && !bestMeta.identityOk && !bestMeta.documentOk) {
+    const scored = list.map((j) => ({ j, meta: scoreJobVerification(insight, j) }));
+    const rival = scored
+      .filter((x) => x.j.id !== best.id && x.meta.points >= 2)
+      .sort((a, b) => b.meta.score - a.meta.score)[0];
+    if (rival) {
+      best = rival.j;
+      bestMeta = rival.meta;
+    } else {
+      const nearStreet = scored.filter(
+        (x) =>
+          x.meta.addressOk &&
+          x.meta.addressScore >= bestMeta.addressScore - 0.12 &&
+          !x.meta.identityOk &&
+          !x.meta.documentOk
+      );
+      if (nearStreet.length > 1) {
+        return {
+          jobId: null,
+          score: bestMeta.addressScore,
+          job: null,
+          points: 1,
+          evidence: bestMeta.evidence,
+          ambiguous: true,
+        };
       }
-      const tieBreak =
-        (String(j.id || "").startsWith("local-") ? 0.02 : 0) +
-        (Number(j.openBalance) > 0 ? 0.01 : 0) -
-        (j.paid ? 0.02 : 0);
-      const effective = score + tieBreak;
-      if (effective > bestScore) {
-        bestScore = effective;
-        best = j;
+      const nameHints = [
+        ...(insight?.customerNameHints || []),
+        insight?.customerNameHint,
+        ...extractCustomerNameHints(insightMatchBlob(insight), insight?.source?.to || ""),
+      ].filter(Boolean);
+      const toEmails = [
+        ...extractEmailsFromText(insight?.source?.to || ""),
+        ...(insight?.recipientEmails || []),
+      ].filter(Boolean);
+      const hasAddressee = nameHints.length > 0 || toEmails.length > 0;
+      if (hasAddressee) {
+        // Explicit addressee present but identity failed → leave for picker / Change.
+        return {
+          jobId: null,
+          score: bestMeta.addressScore,
+          job: null,
+          points: 1,
+          evidence: bestMeta.evidence,
+          identityConflict: true,
+        };
       }
     }
   }
-  const addressFloor = best
-    ? Math.max(
-        0,
-        ...[best.serviceAddress, best.address, best.billingAddress]
-          .filter(Boolean)
-          .map((c) => addressSimilarity(addr, c))
-      )
-    : 0;
-  if (!best || addressFloor < minScore) return { jobId: null, score: addressFloor, job: null };
-  return { jobId: best.id, score: Math.min(1, bestScore), job: best };
+
+  return {
+    jobId: best.id,
+    score: Math.min(1, bestMeta.score),
+    job: best,
+    points: bestMeta.points,
+    evidence: bestMeta.evidence,
+  };
 }
 
 export function buildProposedActions(insight, job, now = new Date()) {
@@ -1108,21 +1342,16 @@ export function buildProposedActions(insight, job, now = new Date()) {
     });
   }
 
-  if (job?.customer && scheduleable) {
-    actions.push({
-      key: "guest_customer",
-      label: `Add ${job.customer} to the event`,
-      enabled: true,
-      // Opt-in only — customer invite after Approve (Levi 2026-08-25).
-      defaultOn: false,
-    });
-  }
+  // One invite toggle only (Levi 2026-08-26) — guest_customer was dead double-messaging.
+  // Off until Approve checks it — no surprise customer email.
   if (job?.email && scheduleable) {
+    const who = job.customer || job.businessName || "customer";
     actions.push({
       key: "guest_email",
-      label: `Add customer email (${job.email}) to the event`,
+      label: `Invite ${who} by email`,
       enabled: true,
       defaultOn: false,
+      surface: true,
     });
   }
 
@@ -1157,14 +1386,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
     });
   }
 
-  if (addr && scheduleable) {
-    actions.push({
-      key: "calendar_location",
-      label: `Set event location: ${addr}`,
-      enabled: true,
-      defaultOn: true,
-    });
-  }
+  // Location always applied on Approve — no separate checkbox (was dead/confusing).
 
   return actions;
 }
@@ -1172,27 +1394,45 @@ export function buildProposedActions(insight, job, now = new Date()) {
 export function formatInsightLead(insight, job) {
   const src = insight?.source?.fromLabel || "Email";
   const outcome = insight?.outcome || "other";
-  let jobLine = job
-    ? `I'm going to add this to the existing job for ${job.customer || "this customer"}.`
-    : insight?.address
-      ? `I found an address (${insight.address}) but no matching job yet.`
-      : "I couldn't match this to a job address yet.";
+  const typeLabel = appointmentTypeLabel(insight?.appointmentType, insight?.agency);
+  const when = insight?.dateTime
+    ? formatInsightDateLabel(insight.dateTime) +
+      (formatInsightTimeLabel(insight.dateTime) ? " · " + formatInsightTimeLabel(insight.dateTime) : "")
+    : "";
+  const where = insight?.address || "";
+  const points = Number(insight?.matchPoints) || 0;
+  const who = job?.customer || job?.businessName || "";
+
   if (outcome === "cancelled") {
-    jobLine = job
-      ? `This appointment was cancelled for ${job.customer || "this customer"}.`
-      : "This appointment was cancelled.";
-  } else if (outcome === "completed") {
-    jobLine = job
-      ? `Inspection completed for ${job.customer || "this customer"} — I'll update the job.`
-      : "Inspection marked completed.";
-  } else if (outcome === "reminder") {
-    jobLine = "This is only a reminder — I won't create a new calendar appointment from it.";
-  } else if (outcome === "scheduled" || outcome === "rescheduled") {
-    const who = job?.customer || "this job";
-    jobLine = `Approve to add calendar for ${who} — customer invite only if you check it.`;
+    return who
+      ? `${src}: cancelled ${typeLabel} for ${who}.`
+      : `${src}: this appointment was cancelled.`;
   }
-  const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType, insight?.agency);
-  return `From ${src}: ${appt}. ${jobLine}`;
+  if (outcome === "completed") {
+    return who
+      ? `${src}: ${typeLabel} completed for ${who} — paperwork updates on Approve.`
+      : `${src}: ${typeLabel} completed.`;
+  }
+  if (outcome === "reminder") {
+    return `${src}: reminder only — will not add a second calendar appointment.`;
+  }
+  if (outcome === "acknowledgment" || outcome === "todo_update") {
+    return `${src}: case/to-do update only — no calendar appointment.`;
+  }
+
+  const bits = [`${src}: ${typeLabel}`];
+  if (when) bits.push(when);
+  if (where) bits.push(where);
+  let line = bits.join(" · ");
+  if (who) {
+    line +=
+      points >= 2
+        ? `. Suggested: ${who} (${points}/3 checks) — Change if wrong.`
+        : `. Suggested: ${who} — confirm or Change.`;
+  } else {
+    line += ". No customer match yet — Choose one.";
+  }
+  return line;
 }
 
 /**
@@ -1527,13 +1767,31 @@ export function enrichInsight(raw, jobs) {
   if (insight.outcome !== "cancelled" && typeof insight.summary === "string") {
     insight.summary = insight.summary.replace(/\s*\(cancelled\)\s*$/i, "").trim();
   }
-  const match = matchJobForInsight(insight, jobs);
-  insight.jobId = match.jobId || insight.jobId || null;
-  insight.jobMatchScore = match.score || insight.jobMatchScore || 0;
-  insight.proposedActions = buildProposedActions(insight, match.job);
-  insight.lead = formatInsightLead(insight, match.job);
-  insight.appliedLead = formatAppliedLead(insight, match.job);
-  insight.canAutoApply = canAutoApply(insight, match.job);
+  // Levi may lock a customer/job on the Approve card — never rematch over it.
+  let matchJob = null;
+  if (insight.jobIdLocked && insight.jobId) {
+    matchJob = (jobs || []).find((j) => String(j.id) === String(insight.jobId)) || null;
+    const lockedMeta = matchJob ? scoreJobVerification(insight, matchJob) : null;
+    insight.jobMatchScore = lockedMeta ? lockedMeta.score : insight.jobMatchScore || 1;
+    insight.matchPoints = lockedMeta ? lockedMeta.points : insight.matchPoints || 0;
+    insight.matchEvidence = lockedMeta ? lockedMeta.evidence : insight.matchEvidence || null;
+  } else {
+    const match = matchJobForInsight(insight, jobs);
+    // Trust rematch — do not keep a stale wrong jobId when matcher abstains
+    // (ambiguous street / identity conflict). Levi can still Change on the card.
+    insight.jobId = match.jobId || null;
+    insight.jobMatchScore = match.score || 0;
+    insight.matchPoints = match.points || 0;
+    insight.matchEvidence = match.evidence || null;
+    matchJob = match.job;
+  }
+  if (!matchJob && insight.jobId) {
+    matchJob = (jobs || []).find((j) => String(j.id) === String(insight.jobId)) || null;
+  }
+  insight.proposedActions = buildProposedActions(insight, matchJob);
+  insight.lead = formatInsightLead(insight, matchJob);
+  insight.appliedLead = formatAppliedLead(insight, matchJob);
+  insight.canAutoApply = canAutoApply(insight, matchJob);
   return insight;
 }
 

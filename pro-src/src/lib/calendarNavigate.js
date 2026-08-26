@@ -212,16 +212,16 @@ export function findEventForInsight(insight, job, events) {
       });
       if (byLoc) return byLoc;
     }
-    // Only accept same-time hits that look like agency appointments — never an
-    // unrelated personal event (Levi 2026-08-25: Credit Saint @ 10:00 falsely
-    // blocked 1337 Final Inspection @ 10:30 via same-day fallback).
     const insp = sameTime.find(isEmailAppt);
+    // Exact clock time alone is not enough — an unrelated meeting at 10:30
+    // must not mark a Con Ed inspection as already_on_calendar.
     if (insp) return insp;
     return null;
   }
 
   // Same calendar day fallback (time may have been floored/adjusted).
-  // Require location OR inspection-like title — never "any event that day".
+  // Require location or inspection-keyword match — never a random same-day event
+  // (Levi 2026-08-25: Aug 31 1337 President inspection matched "keep accounts active").
   const day = dt.slice(0, 10);
   const sameDay = list.filter((e) => evStart(e).slice(0, 10) === day);
   if (!sameDay.length) return null;
@@ -232,14 +232,9 @@ export function findEventForInsight(insight, job, events) {
         .replace(/[^a-z0-9]/g, "");
       return (streetNum && el.includes(streetNum)) || (locKey && el.includes(locKey.slice(0, 10)));
     });
-    if (byLoc && isEmailAppt(byLoc)) return byLoc;
-    // Location match alone is OK only when the title also looks like an appt.
-    if (byLoc && /1337|president|con\s*ed|inspection|meter/i.test(String(byLoc.summary || ""))) {
-      return byLoc;
-    }
+    if (byLoc) return byLoc;
   }
-  const insp = sameDay.find(isEmailAppt);
-  return insp || null;
+  return sameDay.find(isEmailAppt) || null;
 }
 
 /**

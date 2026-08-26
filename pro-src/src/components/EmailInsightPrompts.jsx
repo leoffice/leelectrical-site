@@ -129,28 +129,123 @@ function InsightWhenBlock({ insight, event }) {
   );
 }
 
-function ActionToggles({ actions, selected, onToggle }) {
-  if (!actions?.length) return null;
+/** Only optional surface toggles (invite). Calendar / reminders / paperwork run on Approve. */
+function ActionToggles({ actions, selected, onToggle, scheduleable }) {
+  const visible = (actions || []).filter((a) => a && a.surface === true);
   return (
     <div className="space-y-2 mb-4" data-testid="email-insight-actions">
-      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">I'll do this</div>
-      {actions.map((a) => (
-        <label
-          key={a.key}
-          className={`flex items-start gap-2 text-sm rounded-lg border px-3 py-2 cursor-pointer ${
-            selected.has(a.key) ? "border-brand/30 bg-brand-soft/40" : "border-slate-200 bg-white"
-          } ${a.enabled === false ? "opacity-50" : ""}`}
-        >
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={selected.has(a.key)}
-            disabled={a.enabled === false}
-            onChange={() => onToggle(a.key)}
-          />
-          <span>{a.label}</span>
-        </label>
-      ))}
+      {scheduleable ? (
+        <p className="text-xs text-slate-500 leading-snug" data-testid="email-insight-approve-summary">
+          Approve adds the calendar appointment, day/hour reminders, and paperwork — no second card.
+        </p>
+      ) : null}
+      {visible.length ? (
+        <>
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Optional</div>
+          {visible.map((a) => (
+            <label
+              key={a.key}
+              className={`flex items-start gap-2 text-sm rounded-lg border px-3 py-2 cursor-pointer ${
+                selected.has(a.key) ? "border-brand/30 bg-brand-soft/40" : "border-slate-200 bg-white"
+              } ${a.enabled === false ? "opacity-50" : ""}`}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={selected.has(a.key)}
+                disabled={a.enabled === false}
+                onChange={() => onToggle(a.key)}
+              />
+              <span>{a.label}</span>
+            </label>
+          ))}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function VerifyPoints({ insight }) {
+  const ev = insight?.matchEvidence || {};
+  const points = Number(insight?.matchPoints) || (ev.address ? 1 : 0) + (ev.identity ? 1 : 0) + (ev.document ? 1 : 0);
+  const Chip = ({ ok, label }) => (
+    <span
+      className={
+        "text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border " +
+        (ok
+          ? "text-emerald-800 bg-emerald-50 border-emerald-200"
+          : "text-slate-500 bg-slate-50 border-slate-200")
+      }
+    >
+      {ok ? "✓" : "·"} {label}
+    </span>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mb-2" data-testid="email-insight-verify-points">
+      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">
+        {points}/3 checks
+      </span>
+      <Chip ok={!!ev.address} label="Address" />
+      <Chip ok={!!ev.identity} label="Name / email" />
+      <Chip ok={!!ev.document} label="Case / invoice" />
+    </div>
+  );
+}
+
+function JobPickPanel({ jobs, currentJobId, query, onQuery, onPick, onClose }) {
+  const q = String(query || "").trim().toLowerCase();
+  const list = (jobs || [])
+    .filter((j) => j && !j._archived && !j._deleted)
+    .filter((j) => {
+      if (!q) return true;
+      const blob = [j.customer, j.businessName, j.serviceAddress, j.address, j.email, j.invoiceNo, j.id]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    })
+    .slice(0, 12);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 mb-3" data-testid="email-insight-job-picker">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Choose customer / job</div>
+        <button type="button" className="text-xs text-slate-500 underline" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+      <input
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mb-2"
+        placeholder="Search name, address, email, invoice…"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        data-testid="email-insight-job-search"
+        autoFocus
+      />
+      <div className="max-h-48 overflow-y-auto space-y-1">
+        {list.length ? (
+          list.map((j) => (
+            <button
+              key={j.id}
+              type="button"
+              className={
+                "w-full text-left rounded-lg border px-3 py-2 " +
+                (String(j.id) === String(currentJobId)
+                  ? "border-brand/40 bg-brand-soft/30"
+                  : "border-slate-100 bg-slate-50 hover:bg-white")
+              }
+              onClick={() => onPick(j)}
+              data-testid={"email-insight-job-option-" + j.id}
+            >
+              <div className="font-semibold text-sm text-slate-900 truncate">{j.customer || j.businessName || "Job"}</div>
+              <div className="text-xs text-slate-500 truncate">
+                {j.serviceAddress || j.address || j.email || j.id}
+              </div>
+            </button>
+          ))
+        ) : (
+          <p className="text-xs text-slate-500 py-2">No jobs match that search.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -158,12 +253,14 @@ function ActionToggles({ actions, selected, onToggle }) {
 function EmailInsightSheet({
   insight,
   job,
+  jobs,
   hasExistingAppointment,
   onApprove,
   onEdit,
   onIgnore,
   onIgnoreAndCancel,
   onOpenJob,
+  onPickJob,
 }) {
   const [selected, setSelected] = useState(() => {
     const s = new Set();
@@ -172,6 +269,8 @@ function EmailInsightSheet({
     }
     return s;
   });
+  const [picking, setPicking] = useState(false);
+  const [pickQuery, setPickQuery] = useState("");
 
   const toggle = (key) => {
     setSelected((prev) => {
@@ -183,9 +282,24 @@ function EmailInsightSheet({
   };
 
   const isCancelled = (insight?.outcome || "") === "cancelled";
+  const scheduleable = (insight?.proposedActions || []).some((a) => a.key === "calendar");
+
+  const approveKeys = () => {
+    // Always include default-on actions; optional surface toggles follow the checkbox.
+    const keys = new Set();
+    for (const a of insight?.proposedActions || []) {
+      if (a.defaultOn !== false && a.enabled !== false) keys.add(a.key);
+    }
+    for (const k of selected) keys.add(k);
+    // Unchecked optional (invite) must stay off.
+    for (const a of insight?.proposedActions || []) {
+      if (a.surface === true && !selected.has(a.key)) keys.delete(a.key);
+    }
+    return [...keys];
+  };
 
   return (
-    <PromptSurface title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
+    <PromptSurface title="Inspection from email" onClose={onIgnore} testId="email-insight-sheet">
       <SourceBadge insight={insight} />
       <InsightWhenBlock insight={insight} />
       <div className="rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-3 mb-3">
@@ -196,6 +310,7 @@ function EmailInsightSheet({
           </span>
         </div>
         <p className="text-sm text-purple-900/90 mb-1">{insight?.lead}</p>
+        <VerifyPoints insight={insight} />
         {insight?.skipReason === "missing_from_calendar" ? (
           <p className="text-xs font-semibold text-amber-800 mt-1">
             Email says this appointment is set, but it is not on your calendar yet — approve to add it.
@@ -213,20 +328,56 @@ function EmailInsightSheet({
         ) : null}
       </div>
 
-      {insight?.emailSnippet ? (
-        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg p-2 mb-3 whitespace-pre-wrap max-h-24 overflow-y-auto">
-          {insight.emailSnippet}
-        </p>
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 mb-3" data-testid="email-insight-customer">
+        <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1">Customer</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-semibold text-slate-900 truncate">
+              {job?.customer || job?.businessName || "Not matched yet — pick one"}
+            </div>
+            <div className="text-xs text-slate-500 truncate">
+              {job?.serviceAddress || job?.address || job?.email || insight?.address || ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-xs font-semibold text-brand underline"
+            onClick={() => setPicking((v) => !v)}
+            data-testid="email-insight-change-customer"
+          >
+            {job?.id ? "Change" : "Choose"}
+          </button>
+        </div>
+      </div>
+
+      {picking ? (
+        <JobPickPanel
+          jobs={jobs}
+          currentJobId={job?.id}
+          query={pickQuery}
+          onQuery={setPickQuery}
+          onClose={() => setPicking(false)}
+          onPick={(j) => {
+            onPickJob?.(j);
+            setPicking(false);
+            setPickQuery("");
+          }}
+        />
       ) : null}
 
-      <ActionToggles actions={insight?.proposedActions} selected={selected} onToggle={toggle} />
+      <ActionToggles
+        actions={insight?.proposedActions}
+        selected={selected}
+        onToggle={toggle}
+        scheduleable={scheduleable}
+      />
 
       {!isCancelled ? (
         <Opt
           icon="✅"
           title="Approve"
-          note="Apply the checked actions — only then is a new appointment created"
-          onClick={() => onApprove([...selected])}
+          note="Adds the appointment — customer email invite only if you checked it"
+          onClick={() => onApprove(approveKeys())}
           testId="email-insight-approve"
         />
       ) : null}
@@ -242,17 +393,15 @@ function EmailInsightSheet({
       {job?.id ? (
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
-      <Opt
-        icon="🗑️"
-        title="Ignore and cancel"
-        note={
-          hasExistingAppointment
-            ? "Dismiss this email and cancel the appointment already on your calendar"
-            : "Dismiss — cancels the calendar appointment if one is already set"
-        }
-        onClick={onIgnoreAndCancel}
-        testId="email-insight-ignore-cancel"
-      />
+      {hasExistingAppointment ? (
+        <Opt
+          icon="🗑️"
+          title="Remove from calendar"
+          note="Dismiss this email and delete the matching calendar appointment"
+          onClick={onIgnoreAndCancel}
+          testId="email-insight-ignore-cancel"
+        />
+      ) : null}
       <Opt icon="✋" title="Ignore" note="Dismiss only — leave the calendar alone" onClick={onIgnore} testId="email-insight-ignore" />
     </PromptSurface>
   );
@@ -378,6 +527,32 @@ export default function EmailInsightPrompts() {
   const enrichedAll = useMemo(() => {
     return (emailInsights || []).map((x) => enrichInsight(x, jobs));
   }, [emailInsights, jobs]);
+
+  const pickJobForCurrent = useCallback(
+    async (jobRow) => {
+      if (!current?.id || !jobRow?.id) return;
+      const locked = {
+        ...current,
+        jobId: jobRow.id,
+        jobIdLocked: true,
+        jobMatchScore: 1,
+      };
+      const next = enrichInsight(locked, jobs);
+      setCurrent(next);
+      try {
+        await patchEmailInsight(current.id, {
+          jobId: jobRow.id,
+          jobIdLocked: true,
+          jobMatchScore: next.jobMatchScore || 1,
+          matchPoints: next.matchPoints || 0,
+          matchEvidence: next.matchEvidence || null,
+        });
+      } catch {
+        showToast("Couldn't save customer pick — kept locally");
+      }
+    },
+    [current, jobs, patchEmailInsight, showToast]
+  );
 
   // Pending that still need Levi (weak match / no date) — strong matches auto-apply silently.
   // Never surface past-day appointments (Levi 2026-07-22) — those auto-ignore.
@@ -1031,6 +1206,7 @@ export default function EmailInsightPrompts() {
     <EmailInsightSheet
       insight={current}
       job={job}
+      jobs={jobs}
       hasExistingAppointment={!!currentExisting}
       onApprove={(keys) => approve(current, keys)}
       onEdit={() => {
@@ -1046,6 +1222,7 @@ export default function EmailInsightPrompts() {
       }}
       onIgnore={() => ignore(current)}
       onIgnoreAndCancel={() => ignoreAndCancel(current)}
+      onPickJob={pickJobForCurrent}
       onOpenJob={() => {
         if (!job?.id) return;
         dismiss();

@@ -59,6 +59,7 @@ export default async (req) => {
           ? { ...raw }
           : parseEmailInsight({
               from,
+              to: raw.to || raw.To || "",
               subject,
               body: text,
               receivedAt: raw.receivedAt || raw.date || "",
@@ -87,6 +88,7 @@ export default async (req) => {
           const wasApplied =
             dupe.status === "approved" || dupe.status === "auto_applied" || !!dupe.appliedEventId;
           const neverLandedOnCal = wasApplied && !dupe.appliedEventId && !dupe.skipReason;
+          const locked = !!dupe.jobIdLocked && !!dupe.jobId;
           Object.assign(dupe, insight, {
             id: dupe.id,
             status: neverLandedOnCal || !wasApplied ? "pending" : dupe.status,
@@ -105,6 +107,15 @@ export default async (req) => {
                 }
               : {}),
             appliedEventId: dupe.appliedEventId || insight.appliedEventId,
+            ...(locked
+              ? {
+                  jobId: dupe.jobId,
+                  jobIdLocked: true,
+                  jobMatchScore: dupe.jobMatchScore,
+                  matchPoints: dupe.matchPoints,
+                  matchEvidence: dupe.matchEvidence,
+                }
+              : {}),
           });
           doc.ts = Date.now();
           await store.setJSON(KEY, doc);
@@ -113,7 +124,21 @@ export default async (req) => {
         if (dupe.status !== "pending") {
           return json({ ok: true, deduped: true, insight: dupe });
         }
-        Object.assign(dupe, insight, { status: "pending", updatedAt: new Date().toISOString() });
+        // Preserve Levi's locked customer pick; otherwise refresh match from scanner.
+        const locked = !!dupe.jobIdLocked && !!dupe.jobId;
+        Object.assign(dupe, insight, {
+          status: "pending",
+          updatedAt: new Date().toISOString(),
+          ...(locked
+            ? {
+                jobId: dupe.jobId,
+                jobIdLocked: true,
+                jobMatchScore: dupe.jobMatchScore,
+                matchPoints: dupe.matchPoints,
+                matchEvidence: dupe.matchEvidence,
+              }
+            : {}),
+        });
         doc.ts = Date.now();
         await store.setJSON(KEY, doc);
         return json({ ok: true, insight: dupe, refreshed: true });

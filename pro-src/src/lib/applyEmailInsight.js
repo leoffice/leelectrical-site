@@ -60,8 +60,7 @@ export function calendarTitleForInsight(insight) {
 
 /**
  * Force meter-install defaults: 1h + 1d reminders (same as inspection).
- * Customer guest invite stays opt-in — never force until Approve checks it
- * (Levi 2026-08-25: no customer notify until approved in LE Pro).
+ * Customer email invite stays OFF unless Levi checked it on Approve.
  */
 export function ensureMeterInstallSelections(insight, job, selected) {
   const next = new Set(selected || []);
@@ -74,8 +73,7 @@ export function ensureMeterInstallSelections(insight, job, selected) {
 
 /**
  * Force inspection defaults: 1h + 1d reminders.
- * Customer guest invite stays opt-in — never force until Approve checks it
- * (Levi 2026-08-25: no customer notify until approved in LE Pro).
+ * Guest invite is opt-in on the Approve card (Levi 2026-08-25/26).
  */
 export function ensureInspectionSelections(insight, job, selected) {
   const next = new Set(selected || []);
@@ -120,7 +118,7 @@ export function buildCalendarPayload(insight, job, selected) {
     start: dt || new Date().toISOString().slice(0, 16),
     end: end || undefined,
     durationMinutes: APPOINTMENT_DURATION_MINUTES,
-    location: sel.has("calendar_location") ? location : location,
+    location,
     description,
     guests,
     attendees: guests,
@@ -325,7 +323,7 @@ export async function applyEmailInsight({
     }
   } else if (selected.has("calendar") && insight?.dateTime && scheduleable) {
     const payload = buildCalendarPayload(insight, job, selected);
-    // Guests only when Approve kept guest_email / guest_customer checked — never auto-invite.
+    // Only email the customer when guest_email was checked on Approve.
     customerEmailed = !!(payload.notifyCustomer && payload.guests?.length);
     payload.sendUpdates = customerEmailed ? "all" : "none";
     // Stable key by place+start so original + forward of the same set don't double-create.
