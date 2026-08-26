@@ -999,8 +999,10 @@ export default function EmailInsightPrompts() {
               : null
         }
         onClose={() => {
+          // Back out of Edit → restore the Approve card (do not mark seen/ignored).
           setEditSheet(null);
           setHidden(false);
+          setCurrent(ins);
         }}
         onSaved={async () => {
           seen.current.add(ins.id);
@@ -1020,12 +1022,15 @@ export default function EmailInsightPrompts() {
       hasExistingAppointment={!!currentExisting}
       onApprove={(keys) => approve(current, keys)}
       onEdit={() => {
+        // Open the appointment editor — do NOT call dismiss().
+        // dismiss() set hidden=true AND cleared editSheet, so "Edit first"
+        // made the card vanish with no way back (Levi 2026-08-25).
         setEditSheet({
           insight: current,
           job,
           selected: [...(current?.proposedActions || []).filter((a) => a.defaultOn !== false).map((a) => a.key)],
         });
-        dismiss();
+        setCurrent(null);
       }}
       onIgnore={() => ignore(current)}
       onIgnoreAndCancel={() => ignoreAndCancel(current)}
