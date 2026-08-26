@@ -41,6 +41,17 @@ const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
 /** Per app-open: how many calendar auto-applies already ran this session (paperwork only). */
 let autoApplyCalendarCount = 0;
+/** Test-only: allow Edit-first / Approve card UI without enabling background auto-apply. */
+let forceSurfaceInTest = false;
+export function __forceEmailInsightSurfaceForTest(on = true) {
+  forceSurfaceInTest = !!on;
+}
+function skipBackgroundInTest() {
+  return IS_TEST && !forceSurfaceInTest;
+}
+function skipSurfaceInTest() {
+  return IS_TEST && !forceSurfaceInTest;
+}
 
 function markSessionSeen() {
   try {
@@ -520,7 +531,7 @@ export default function EmailInsightPrompts() {
   // Completed inspections may still auto-update paperwork via canAutoApply.
   // Past-day / junk: silent ignore.
   useEffect(() => {
-    if (IS_TEST || loading || !jobs?.length) return;
+    if (skipBackgroundInTest() || loading || !jobs?.length) return;
     let cancelled = false;
     (async () => {
       for (const raw of emailInsights || []) {
@@ -844,7 +855,7 @@ export default function EmailInsightPrompts() {
   // (e.g. 1127 Lincoln Pl). If no job exists, create one and attach the case.
   const caseLinkRan = useRef(false);
   useEffect(() => {
-    if (IS_TEST || loading || !jobs?.length || !patchAndSave) return;
+    if (skipBackgroundInTest() || loading || !jobs?.length || !patchAndSave) return;
     if (caseLinkRan.current) return;
     if (!emailInsights?.length) return;
     let cancelled = false;
@@ -889,7 +900,7 @@ export default function EmailInsightPrompts() {
   // (t7) is the recurring one — the interval here doubled every fetch
   // (perf audit Batch C, 2026-08-11).
   useEffect(() => {
-    if (IS_TEST || loading) return;
+    if (skipBackgroundInTest() || loading) return;
     refreshEmailInsights();
   }, [loading, refreshEmailInsights]);
 
@@ -910,7 +921,7 @@ export default function EmailInsightPrompts() {
   }, [current, doneNotice, enrichedAll]);
 
   useEffect(() => {
-    if (IS_TEST || shouldSuppressPrompts() || hidden || editSheet) return;
+    if (skipSurfaceInTest() || shouldSuppressPrompts() || hidden || editSheet) return;
     if (current || doneNotice) return;
     if (isScreenCovered()) return;
     // Prefer "done" notices so Levi sees what already landed.
@@ -928,7 +939,7 @@ export default function EmailInsightPrompts() {
     }
   }, [pendingNeedsApprove, doneQueue, current, doneNotice, hidden, editSheet, sheetTick]);
 
-  if (IS_TEST || shouldSuppressPrompts() || hidden) return null;
+  if (skipSurfaceInTest() || shouldSuppressPrompts() || hidden) return null;
   if (!current && !editSheet && !doneNotice) return null;
 
   if (doneNotice) {
@@ -991,6 +1002,7 @@ export default function EmailInsightPrompts() {
         defaultSummary={payload.summary}
         defaultLocation={payload.location}
         defaultNotes={payload.description}
+        guestNotifyDefault={selected.has("guest_email")}
         inspectionPreset={
           ins?.appointmentType === "inspection"
             ? { branch: "coned", step: "Inspection appointment", date: ins?.dateTime }

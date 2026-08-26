@@ -62,13 +62,14 @@ export default function Sheet({ title, onClose, children, wide, tall, testId, ur
 }
 
 /** Big tappable option row (sleek's .opt). */
-export function Opt({ icon, title, note, danger, onClick, className = "", ...rest }) {
+export function Opt({ icon, title, note, danger, onClick, className = "", testId, ...rest }) {
   return (
     <button
       className={`w-full flex items-center gap-3 text-left border rounded-2xl px-4 py-3 mb-2.5 active:bg-slate-50 ${
         danger ? "border-red-200" : "border-slate-200"
       } ${className}`}
       onClick={onClick}
+      data-testid={testId || undefined}
       {...rest}
     >
       <span className="text-xl">{icon}</span>

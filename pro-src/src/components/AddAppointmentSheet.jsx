@@ -88,6 +88,11 @@ export default function AddAppointmentSheet({
   showCalendar = true,
   /** When true, render as an in-page card (calendar already above on Today). */
   inline = false,
+  /**
+   * Override guest-invite default (email-insight Edit first must stay OFF until
+   * Levi checks the box — Approve path already uses guest_email defaultOn:false).
+   */
+  guestNotifyDefault = null,
 }) {
   // Data-only — typing + save must not re-render on staged job edits / save-bar dirty.
   const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } =
@@ -98,7 +103,12 @@ export default function AddAppointmentSheet({
   const fromInspection = !!inspectionPreset?.step || (isEdit && isInspectionEvent(editEvent));
   const presetDt = defaultDate || (fromInspection && inspectionPreset ? inspectionPreset?.date : "");
   const presetReminders = isEdit ? initialReminders(editEvent) : null;
-  const presetGuest = isEdit ? initialGuest(editEvent, job) : null;
+  const presetGuest =
+    guestNotifyDefault != null
+      ? { notify: !!guestNotifyDefault, email: job?.email || "" }
+      : isEdit
+        ? initialGuest(editEvent, job)
+        : null;
   // One save per form open — double-taps used to create multiple Google events (unique Date.now keys).
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
