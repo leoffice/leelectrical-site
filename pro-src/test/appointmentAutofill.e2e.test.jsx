@@ -75,7 +75,7 @@ describe("appointment autofill e2e", () => {
     });
   });
 
-  it("create customer from appointment prefills the customer form", async () => {
+  it("create customer from appointment autosaves and opens the job (no second Save)", async () => {
     const srv = mockServer({ events: [richEvent] });
     const user = userEvent.setup();
     renderApp("#/today");
@@ -83,22 +83,21 @@ describe("appointment autofill e2e", () => {
     await user.click(await screen.findByText("Service call — Brooklyn"));
     await user.click(screen.getByText("＋ Create customer from appointment"));
 
-    await screen.findByTestId("newcustomer-search");
-    expect(screen.getByLabelText("Customer name")).toHaveValue("Metro Electric LLC");
-    expect(screen.getByLabelText("Person name")).toHaveValue("Jane Smith");
-    expect(screen.getByLabelText("Phone")).toHaveValue("718-555-9999");
-    expect(screen.getByLabelText("Email")).toHaveValue("jane@metro.com");
-    expect(screen.getByLabelText("Service address")).toHaveValue("200 Service Ave, Brooklyn, NY 11201");
-    expect(screen.getByLabelText("Billing address")).toHaveValue("50 Billing Blvd, Newark, NJ 07102");
+    // Calendar choice already commits — never require Save & sync again.
+    expect(screen.queryByTestId("addcustomer-save-sync")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("detail-pane")).toBeInTheDocument();
 
-    await user.click(screen.getByTestId("addcustomer-save-sync"));
     await waitFor(() => {
       const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
       expect(key).toBeTruthy();
       const ov = srv.state.ov[key];
       expect(ov.customer).toBe("Metro Electric LLC");
+      expect(ov.personName).toBe("Jane Smith");
+      expect(ov.phone).toBe("718-555-9999");
+      expect(ov.email).toBe("jane@metro.com");
       expect(ov.billingAddress).toBe("50 Billing Blvd, Newark, NJ 07102");
       expect(ov.serviceAddress).toBe("200 Service Ave, Brooklyn, NY 11201");
+      expect(ov.calEventId).toBe("ev-autofill");
     });
   });
 });

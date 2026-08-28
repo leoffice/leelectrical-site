@@ -358,7 +358,11 @@ export default function AppointmentDetailSheet({ event, onClose, inline = false 
         className="btn bg-slate-100 text-slate-800 w-full"
         onClick={() => {
           onClose();
-          setNewJob({ step: "newCustomer", prefill: prefillFromEvent(liveEvent) });
+          setNewJob({
+            step: "newCustomer",
+            prefill: prefillFromEvent(liveEvent),
+            fromCalendar: true,
+          });
         }}
       >
         ＋ Create customer from appointment
