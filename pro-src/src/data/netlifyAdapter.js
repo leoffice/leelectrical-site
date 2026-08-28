@@ -613,6 +613,33 @@ export function createNetlifyAdapter() {
       return { ok: true };
     },
 
+    /** Work-description polish train pairs — ov._workDescriptionPolishLearning. */
+    async getWorkDescriptionPolishLearning() {
+      const state = await freshState();
+      const ov = (state && state.ov) || {};
+      return Array.isArray(ov._workDescriptionPolishLearning)
+        ? ov._workDescriptionPolishLearning
+        : [];
+    },
+
+    async appendWorkDescriptionPolishFeedback(entry) {
+      if (!entry || !entry.raw || !entry.edited) return { ok: false };
+      const state = await freshState();
+      const ov = { ...((state && state.ov) || {}) };
+      const cur = Array.isArray(ov._workDescriptionPolishLearning)
+        ? ov._workDescriptionPolishLearning
+        : [];
+      ov._workDescriptionPolishLearning = cur
+        .concat([{ ...entry, ts: entry.ts || Date.now() }])
+        .slice(-200);
+      const res = await http("state", { ov });
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
+      return { ok: true };
+    },
+
     /** Customer index for the New Job smart search (#49) + the Jobs-tab
      *  QBO customer search (#56). GET /customers -> { customers:[{name,id,...}] };
      *  GET /customers?q=<query> -> top ~12 matches (name, person, phone, email)

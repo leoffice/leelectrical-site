@@ -1,14 +1,25 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   WORK_DESCRIPTION_STYLES,
   TRAILER_SOW_ROUGH,
+  DEDICATED_LINES_ROUGH,
   LABOR_ONLY_NOTE,
   addressInNewJersey,
   polishWorkDescription,
   polishClarifyingQuestions,
   polishWorkDescriptionWithAnswers,
   professionalLead,
+  stripMetaFluff,
 } from "../src/lib/workDescriptionPolish.js";
+import {
+  clearPolishLearningForTests,
+  savePolishLearningEntry,
+  preferLearnedPolish,
+} from "../src/lib/workDescriptionPolishLearning.js";
+
+beforeEach(() => {
+  clearPolishLearningForTests();
+});
 
 describe("workDescriptionPolish", () => {
   it("exposes a short polish style menu", () => {
@@ -117,6 +128,54 @@ describe("workDescriptionPolish", () => {
     expect(professionalLead("temporary sleeping trailers")).toBe(
       "Electrical work — temporary sleeping trailers:"
     );
+  });
+
+  it("dedicated-lines fail case: strip preamble, imperative bullets, no invented price/junk", () => {
+    const out = polishWorkDescription(DEDICATED_LINES_ROUGH, "professional", {
+      skipLearning: true,
+    });
+    const rows = out.split("\n");
+    expect(rows[0]).toBe("Electrical work:");
+    expect(out).not.toMatch(/The following is the description/i);
+    expect(out).not.toMatch(/I don't/i);
+    expect(out).not.toMatch(/Price includes labor and materials/i);
+    expect(out).not.toContain(LABOR_ONLY_NOTE);
+    const bullets = rows.filter((r) => r.startsWith("• "));
+    expect(bullets).toEqual([
+      "• Remove existing equipment",
+      "• Install 5 dedicated circuits / lines on the same floor (~150 ft of cable)",
+    ]);
+    expect(out).toContain("Work performed in accordance with NEC and applicable local code requirements");
+  });
+
+  it("stripMetaFluff drops description preamble only", () => {
+    expect(stripMetaFluff(DEDICATED_LINES_ROUGH)).toMatch(/^We are going to remove/i);
+    expect(stripMetaFluff("panel upgrade")).toBe("panel upgrade");
+  });
+
+  it("does not invent labor+materials commercial note when Levi did not say it", () => {
+    const out = polishWorkDescription(
+      "Remove old panel. Install new 200A panel.",
+      "professional",
+      { skipLearning: true }
+    );
+    expect(out).not.toMatch(/labor and materials/i);
+    expect(out).not.toContain(LABOR_ONLY_NOTE);
+  });
+
+  it("prefers a saved Levi edit on the next polish of similar rough notes", async () => {
+    const raw = DEDICATED_LINES_ROUGH;
+    const edited =
+      "Electrical work:\n• Remove existing equipment\n• Install 5 dedicated circuits on floor 2 (~150 ft)\nWork performed in accordance with NEC and applicable local code requirements.";
+    await savePolishLearningEntry({
+      raw,
+      polished: "Electrical work:\n• We are going to remove…",
+      edited,
+      styleKey: "professional",
+    });
+    expect(preferLearnedPolish(raw, "professional")).toBe(edited);
+    const out = polishWorkDescription(raw, "professional");
+    expect(out).toBe(edited);
   });
 });
 

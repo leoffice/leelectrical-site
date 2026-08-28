@@ -1531,6 +1531,25 @@ export function StoreProvider({ children }) {
     }
   }, [api]);
 
+  const appendWorkDescriptionPolishFeedback = useCallback(
+    async (entry) => {
+      if (!api.appendWorkDescriptionPolishFeedback) return;
+      try {
+        await api.appendWorkDescriptionPolishFeedback(entry);
+      } catch {}
+    },
+    [api]
+  );
+
+  const getWorkDescriptionPolishLearning = useCallback(async () => {
+    if (!api.getWorkDescriptionPolishLearning) return [];
+    try {
+      return (await api.getWorkDescriptionPolishLearning()) || [];
+    } catch {
+      return [];
+    }
+  }, [api]);
+
   const getSettings = useCallback(async () => {
     if (!api.getSettings) throw new Error("Settings not available");
     return api.getSettings();
@@ -1591,6 +1610,8 @@ export function StoreProvider({ children }) {
       appendInvoiceEditFeedback,
       appendPaymentVisionFeedback,
       getPaymentVisionLearning,
+      appendWorkDescriptionPolishFeedback,
+      getWorkDescriptionPolishLearning,
       patchLocalEvent,
       removeLocalEvent,
       enqueue,
@@ -1651,6 +1672,8 @@ export function StoreProvider({ children }) {
       appendInvoiceEditFeedback,
       appendPaymentVisionFeedback,
       getPaymentVisionLearning,
+      appendWorkDescriptionPolishFeedback,
+      getWorkDescriptionPolishLearning,
       patchLocalEvent,
       removeLocalEvent,
       enqueue,

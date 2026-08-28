@@ -64,6 +64,29 @@ describe("DescriptionField", () => {
     expect(screen.queryByTestId("description-field-polish-btn")).toBeNull();
     expect(screen.queryByTestId("description-field-view-pdf-btn")).toBeNull();
   });
+
+  it("shows Save edit to train after Levi edits a polished description", async () => {
+    let text = "panel swap; new circuits";
+    const onChange = vi.fn((next) => {
+      text = next;
+    });
+    const { rerender } = render(<DescriptionField value={text} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("description-field-polish-btn"));
+    fireEvent.click(screen.getByTestId("description-field-polish-brief"));
+    expect(onChange).toHaveBeenCalled();
+    const polished = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    rerender(<DescriptionField value={polished} onChange={onChange} />);
+    // Simulate Levi editing the polished text.
+    const edited = polished + "\n• Levi tweak";
+    rerender(<DescriptionField value={edited} onChange={onChange} />);
+    expect(screen.getByTestId("description-field-polish-save-train-btn")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("description-field-polish-save-train-btn"));
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("description-field-polish-save-train-btn")).toHaveTextContent(
+        /Saved for model/i
+      );
+    });
+  });
 });
 
 describe("descriptionPdf", () => {

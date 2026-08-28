@@ -6,7 +6,9 @@ import {
   polishClarifyingQuestions,
   polishWorkDescription,
 } from "../lib/workDescriptionPolish.js";
+import { savePolishLearningEntry } from "../lib/workDescriptionPolishLearning.js";
 import PolishQuestionnaireSheet from "./PolishQuestionnaireSheet.jsx";
+import api from "../data/adapter.js";
 
 const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
@@ -32,17 +34,23 @@ export function PolishButton({
   const [open, setOpen] = useState(false);
   const [lastStyle, setLastStyle] = useState(null);
   const [prePolish, setPrePolish] = useState(null);
+  const [lastPolished, setLastPolished] = useState(null);
   const [askStyle, setAskStyle] = useState(null);
+  const [trainState, setTrainState] = useState(null); // null | "saving" | "saved"
 
   const applyDirect = (key) => {
-    setPrePolish(value ?? "");
+    const raw = value ?? "";
+    setPrePolish(raw);
     setLastStyle(key);
-    onChange(polishWorkDescription(value, key, context));
+    const polished = polishWorkDescription(raw, key, context);
+    setLastPolished(polished);
+    setTrainState(null);
+    onChange(polished);
     setOpen(false);
   };
 
   const apply = (key) => {
-    // Professional / Invoice-ready: offer clarifying questions when useful (Codex UX).
+    // Professional / Invoice-ready: offer clarifying questions when useful.
     if (QUESTIONNAIRE_STYLES.has(key)) {
       const qs = polishClarifyingQuestions(value, context);
       if (qs.length > 0) {
@@ -60,11 +68,54 @@ export function PolishButton({
     if (prePolish == null) return;
     onChange(prePolish);
     setPrePolish(null);
+    setLastPolished(null);
     setLastStyle(null);
+    setTrainState(null);
     setOpen(false);
   };
 
+  const editedAfterPolish =
+    prePolish != null &&
+    lastPolished != null &&
+    String(value || "").trim() !== "" &&
+    String(value || "").trim() !== String(lastPolished || "").trim() &&
+    String(value || "").trim() !== String(prePolish || "").trim();
+
+  const saveForTrain = async () => {
+    if (!editedAfterPolish || trainState === "saving" || trainState === "saved") return;
+    setTrainState("saving");
+    const entry = {
+      raw: prePolish,
+      polished: lastPolished,
+      edited: String(value || "").trim(),
+      ts: Date.now(),
+      jobId: context.jobId || context.id || "",
+      styleKey: lastStyle || "professional",
+    };
+    try {
+      const isTest =
+        typeof process !== "undefined" &&
+        (!!process.env?.VITEST || process.env?.NODE_ENV === "test");
+      await savePolishLearningEntry(entry, {
+        // Durable sync to ov._workDescriptionPolishLearning (skip in vitest — no network).
+        appendRemote:
+          !isTest && api.appendWorkDescriptionPolishFeedback
+            ? (e) => api.appendWorkDescriptionPolishFeedback(e).catch(() => {})
+            : undefined,
+      });
+      setTrainState("saved");
+    } catch {
+      setTrainState(null);
+    }
+  };
+
   const styleLabel = WORK_DESCRIPTION_STYLES.find((s) => s.key === lastStyle)?.label || "";
+  const trainLabel =
+    trainState === "saved"
+      ? "✓ Saved for model"
+      : trainState === "saving"
+        ? "Saving…"
+        : "💾 Save edit to train";
 
   return (
     <div className={compact ? "relative shrink-0" : "relative"}>
@@ -98,6 +149,17 @@ export function PolishButton({
               ↩ Revert
             </button>
           ) : null}
+          {editedAfterPolish ? (
+            <button
+              type="button"
+              className="btn w-full text-left !py-2 !px-3 text-sm leading-snug bg-emerald-50 text-emerald-950 border border-emerald-200"
+              onClick={saveForTrain}
+              disabled={trainState === "saving" || trainState === "saved"}
+              data-testid={testId + "-polish-save-train"}
+            >
+              {trainLabel}
+            </button>
+          ) : null}
           {WORK_DESCRIPTION_STYLES.map((s) => (
             <button
               key={s.key}
@@ -129,14 +191,27 @@ export function PolishButton({
         </div>
       ) : null}
       {prePolish != null && !open && !compact ? (
-        <button
-          type="button"
-          className="btn w-full !py-1.5 mt-1 text-sm bg-amber-50 text-amber-950 border border-amber-200"
-          onClick={revert}
-          data-testid={testId + "-polish-revert-btn"}
-        >
-          ↩ Revert to previous
-        </button>
+        <div className="flex flex-col gap-1 mt-1">
+          <button
+            type="button"
+            className="btn w-full !py-1.5 text-sm bg-amber-50 text-amber-950 border border-amber-200"
+            onClick={revert}
+            data-testid={testId + "-polish-revert-btn"}
+          >
+            ↩ Revert to previous
+          </button>
+          {editedAfterPolish ? (
+            <button
+              type="button"
+              className="btn w-full !py-1.5 text-sm bg-emerald-50 text-emerald-950 border border-emerald-200"
+              onClick={saveForTrain}
+              disabled={trainState === "saving" || trainState === "saved"}
+              data-testid={testId + "-polish-save-train-btn"}
+            >
+              {trainLabel}
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {askStyle ? (
         <PolishQuestionnaireSheet
@@ -147,6 +222,8 @@ export function PolishButton({
           onApply={(text) => {
             if (prePolish == null) setPrePolish(value ?? "");
             setLastStyle(askStyle);
+            setLastPolished(text);
+            setTrainState(null);
             onChange(text);
             setAskStyle(null);
           }}
