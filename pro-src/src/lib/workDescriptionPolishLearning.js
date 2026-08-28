@@ -139,7 +139,7 @@ export function preferLearnedPolish(raw, styleKey = "professional", entries) {
 /**
  * Save train pair locally and optionally sync via adapter method.
  * @param {object} entry
- * @param {{ appendRemote?: (e: object) => Promise<unknown>, handoffPath?: string }} [opts]
+ * @param {{ appendRemote?: (e: object) => Promise<unknown> }} [opts]
  */
 export async function savePolishLearningEntry(entry, opts = {}) {
   const list = appendPolishLearningLocal(entry);
@@ -151,29 +151,6 @@ export async function savePolishLearningEntry(entry, opts = {}) {
       await opts.appendRemote(norm);
     } catch {
       /* local still saved */
-    }
-  }
-
-  // Durable JSON under handoff when a path is provided (Node / agent tooling).
-  if (opts.handoffPath && typeof process !== "undefined") {
-    try {
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const dir = path.dirname(opts.handoffPath);
-      fs.mkdirSync(dir, { recursive: true });
-      let remote = [];
-      if (fs.existsSync(opts.handoffPath)) {
-        try {
-          remote = JSON.parse(fs.readFileSync(opts.handoffPath, "utf8"));
-        } catch {
-          remote = [];
-        }
-      }
-      if (!Array.isArray(remote)) remote = [];
-      remote.push(norm);
-      fs.writeFileSync(opts.handoffPath, JSON.stringify(remote.slice(-MAX_ENTRIES), null, 2));
-    } catch {
-      /* optional */
     }
   }
 
