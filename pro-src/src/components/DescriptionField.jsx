@@ -1,7 +1,12 @@
 // Description input with optional ✨ Polish — work-scope language for estimates & invoices.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Fld } from "./Sheet.jsx";
-import { WORK_DESCRIPTION_STYLES, polishWorkDescription } from "../lib/workDescriptionPolish.js";
+import {
+  WORK_DESCRIPTION_STYLES,
+  polishClarifyingQuestions,
+  polishWorkDescription,
+} from "../lib/workDescriptionPolish.js";
+import PolishQuestionnaireSheet from "./PolishQuestionnaireSheet.jsx";
 
 const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
@@ -14,6 +19,8 @@ const COMPACT_MIN_TEXTAREA_PX = 38;
  */
 const COMPACT_MAX_TEXTAREA_PX = 480;
 
+const QUESTIONNAIRE_STYLES = new Set(["professional", "invoice"]);
+
 /** Compact polish control — sits next to amount (or anywhere). */
 export function PolishButton({
   value,
@@ -25,12 +32,28 @@ export function PolishButton({
   const [open, setOpen] = useState(false);
   const [lastStyle, setLastStyle] = useState(null);
   const [prePolish, setPrePolish] = useState(null);
+  const [askStyle, setAskStyle] = useState(null);
 
-  const apply = (key) => {
+  const applyDirect = (key) => {
     setPrePolish(value ?? "");
     setLastStyle(key);
     onChange(polishWorkDescription(value, key, context));
     setOpen(false);
+  };
+
+  const apply = (key) => {
+    // Professional / Invoice-ready: offer clarifying questions when useful (Codex UX).
+    if (QUESTIONNAIRE_STYLES.has(key)) {
+      const qs = polishClarifyingQuestions(value, context);
+      if (qs.length > 0) {
+        setPrePolish(value ?? "");
+        setLastStyle(key);
+        setAskStyle(key);
+        setOpen(false);
+        return;
+      }
+    }
+    applyDirect(key);
   };
 
   const revert = () => {
@@ -90,6 +113,19 @@ export function PolishButton({
               {s.label}
             </button>
           ))}
+          {prePolish != null && QUESTIONNAIRE_STYLES.has(lastStyle) ? (
+            <button
+              type="button"
+              className="btn w-full text-left !py-2 !px-3 text-sm leading-snug bg-purple-50 text-purple-900 border border-purple-200"
+              onClick={() => {
+                setAskStyle(lastStyle || "professional");
+                setOpen(false);
+              }}
+              data-testid={testId + "-polish-refine"}
+            >
+              ❓ Refine with questions
+            </button>
+          ) : null}
         </div>
       ) : null}
       {prePolish != null && !open && !compact ? (
@@ -101,6 +137,20 @@ export function PolishButton({
         >
           ↩ Revert to previous
         </button>
+      ) : null}
+      {askStyle ? (
+        <PolishQuestionnaireSheet
+          roughText={prePolish != null ? prePolish : value}
+          styleKey={askStyle}
+          context={context}
+          onClose={() => setAskStyle(null)}
+          onApply={(text) => {
+            if (prePolish == null) setPrePolish(value ?? "");
+            setLastStyle(askStyle);
+            onChange(text);
+            setAskStyle(null);
+          }}
+        />
       ) : null}
     </div>
   );
