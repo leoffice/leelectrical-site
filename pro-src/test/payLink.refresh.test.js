@@ -4,6 +4,9 @@
  * content from the LIVE job (jobsdata ⊕ ov overlay) so a customer can never
  * see a stale amount, the dictation-garbage billing address, or another
  * customer's invoice (251854 is shared by two customers).
+ *
+ * LE-2720 (Tomchei, 2026-08-28): local invoices that exist ONLY in ov must
+ * still refresh — otherwise a partial ACH leaves the emailed original balance.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,6 +61,7 @@ const jobsDoc = {
 
 // ov overlay: office edits win at render time. Levi's edit raised the invoice
 // and poisoned the addresses with a dictation leftover.
+// local-tomchei is ov-ONLY (not in jobsdata) — mirrors LE-2720 before QBO sync.
 const ovDoc = {
   ov: {
     "local-1785688750694": {
@@ -73,7 +77,51 @@ const ovDoc = {
         { id: "p1", amount: "$2800", date: "2026-08-09" },
       ],
     },
+    "local-tomchei": {
+      id: "local-tomchei",
+      customer: "Friends of Tomchei Temimim Inc.",
+      invoiceNo: "LE-2720",
+      amount: "$16,800",
+      openBalance: 8785,
+      paid: false,
+      email: "Shagur770@gmail.com",
+      phone: "(718) 977-5777",
+      serviceAddress: "341 Troy Ave Brooklyn Ny 11213",
+      billingAddress: "1402 Union Street, Brooklyn, NY 11213",
+      paymentBaseline: 16800,
+      amountWhenBaselined: 16030,
+      payments: [
+        {
+          id: "sola-11027699681",
+          amount: "$8015",
+          method: "ACH",
+          ref: "11027699681",
+          date: "2026-08-28",
+        },
+      ],
+      _savedAt: 1787945814068,
+    },
   },
+};
+
+const STALE_TOMCHEI = {
+  j: "local-tomchei",
+  i: "LE-2720",
+  a: 16030,
+  fe: 1,
+  c: "Friends of Tomchei Temimim Inc.",
+  w: "old snapshot text",
+  t: "$16,030.00",
+  d: "$16,030.00",
+  p: "",
+  ps: [],
+  e: "Shagur770@gmail.com",
+  sa: "341 Troy Ave Brooklyn Ny 11213",
+  ba: "1402 Union Street, Brooklyn, NY 11213",
+  sl: "blzelectric",
+  pay: "",
+  as: "2026-08-28",
+  k: "i",
 };
 
 vi.mock("../../netlify/functions/lib/storage/index.mjs", () => ({
@@ -277,5 +325,33 @@ describe("refresh-on-open", () => {
     expect(body.ok).toBe(true);
     expect(body.payload.c).toBe("Goodness and kindness");
     expect(body.payload.d).toBe("$2,300.00");
+  });
+
+  it("ov-only local invoice refreshes balance + payment history (LE-2720)", async () => {
+    paylinks.set(
+      "pl-02720-uu3n",
+      JSON.stringify({ payload: STALE_TOMCHEI, createdAt: Date.now(), invoiceNo: "LE-2720" })
+    );
+    const res = await jsonGet("02720-uu3n");
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.payload.j).toBe("local-tomchei");
+    expect(body.payload.a).toBe(8785);
+    expect(body.payload.d).toBe("$8,785.00");
+    expect(body.payload.p).toBe("$8,015.00");
+    expect(body.payload.t).toBe("$16,800.00");
+    expect(body.payload.ps).toEqual([
+      { a: "$8,015.00", m: "ACH", d: "2026-08-28", r: "11027699681" },
+    ]);
+    expect(body.payload.rf).toBe(1);
+  });
+
+  it("ov-only job resolves by LE- invoice digits when job id is missing", async () => {
+    const job = await loadLiveInvoiceJob({
+      invoiceNo: "02720",
+      customer: "Friends of Tomchei Temimim Inc.",
+    });
+    expect(job?.id).toBe("local-tomchei");
+    expect(job?.openBalance).toBe(8785);
   });
 });

@@ -8,6 +8,10 @@
 // overlay, exactly what the office app renders) so a pay link can never show
 // a stale amount again. Link-intent fields (fee flag, full-pay-only, cardknox
 // URL, recipient email, deliberate partial amounts) stay as minted.
+//
+// Local-only invoices (LE-* minted before QBO sync) often live ONLY in ov —
+// LE-2720 / Tomchei showed the emailed $16k after an $8k ACH because refresh
+// refused to read an ov-only job (Levi 2026-08-28).
 
 import { getStore } from "./storage/index.mjs";
 import { deepMerge, isPlainObject } from "./ovPatch.mjs";
@@ -42,50 +46,101 @@ function normName(s) {
     .trim();
 }
 
+/** Digits only, strip leading zeros so LE-2720 ↔ 02720 ↔ 2720 match. */
+export function invoiceDigitsKey(s) {
+  const d = String(s || "").replace(/\D/g, "");
+  if (!d) return "";
+  return d.replace(/^0+/, "") || "0";
+}
+
+export function invoiceNosMatch(a, b) {
+  const sa = String(a || "").trim();
+  const sb = String(b || "").trim();
+  if (!sa || !sb) return false;
+  if (sa === sb) return true;
+  const ka = invoiceDigitsKey(sa);
+  const kb = invoiceDigitsKey(sb);
+  return !!(ka && kb && ka === kb);
+}
+
+function looksLikeJob(o) {
+  if (!isPlainObject(o)) return false;
+  return !!(
+    o.invoiceNo ||
+    o.amount ||
+    o.customer ||
+    o.openBalance != null ||
+    (Array.isArray(o.payments) && o.payments.length)
+  );
+}
+
+function pickNamedMatch(matches, customer) {
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    const want = normName(customer);
+    const named = want ? matches.filter((j) => normName(j.customer) === want) : [];
+    if (named.length) {
+      return named.sort((a, b) => (Number(a._savedAt) || 0) - (Number(b._savedAt) || 0)).pop();
+    }
+  }
+  return null;
+}
+
 /**
  * Find the live job for an invoice: jobsdata merged with the ov edit overlay
- * (user edits always win at render time — state.mjs contract).
+ * (user edits always win at render time — state.mjs contract). Ov-only local
+ * jobs are first-class — they are what the office app shows before QBO sync.
  *
  * Invoice numbers are NOT unique (251854 belongs to both Gabriel development
  * and Goodness and kindness), so a bare invoiceNo only resolves when it is
  * unambiguous or the customer name matches — never guess across customers.
  */
 export async function loadLiveInvoiceJob({ invoiceNo = "", jobId = "", customer = "" } = {}) {
-  let doc;
+  let jobs = [];
   try {
-    doc = await getStore("jobsdata").get(JOBS_KEY, { type: "json" });
+    const doc = await getStore("jobsdata").get(JOBS_KEY, { type: "json" });
+    jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
   } catch (err) {
     console.error("[pay-link] refresh: jobsdata read failed", err);
-    return null;
   }
-  const jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
+
+  let ov = {};
+  try {
+    const ovDoc = await getStore("jobstate").get(OV_KEY, { type: "json" });
+    if (isPlainObject(ovDoc?.ov)) ov = ovDoc.ov;
+  } catch (err) {
+    console.error("[pay-link] refresh: ov overlay read failed", err);
+  }
+
   const wantId = String(jobId || "").trim();
   const wantInv = String(invoiceNo || "").trim();
   let job = wantId ? jobs.find((j) => j && String(j.id || "") === wantId) || null : null;
+
+  // Brand-new local invoices often exist only in ov until jobsdata sync.
+  if (!job && wantId && looksLikeJob(ov[wantId])) {
+    job = { id: wantId, ...ov[wantId] };
+  }
+
   if (!job && wantInv) {
-    const matches = jobs.filter((j) => j && String(j.invoiceNo || "").trim() === wantInv);
-    if (matches.length === 1) {
-      job = matches[0];
-    } else if (matches.length > 1) {
-      const want = normName(customer);
-      const named = want ? matches.filter((j) => normName(j.customer) === want) : [];
-      // Prefer the newest edit when the same customer has clones of the invoice.
-      if (named.length) {
-        job = named.sort((a, b) => (Number(a._savedAt) || 0) - (Number(b._savedAt) || 0)).pop();
-      }
-    } else {
+    const matches = jobs.filter((j) => j && invoiceNosMatch(j.invoiceNo, wantInv));
+    const seen = new Set(matches.map((j) => String(j.id || "")));
+    for (const [id, patch] of Object.entries(ov)) {
+      if (!looksLikeJob(patch) || !invoiceNosMatch(patch.invoiceNo, wantInv)) continue;
+      if (seen.has(String(id))) continue;
+      seen.add(String(id));
+      matches.push({ id, ...patch });
+    }
+    job = pickNamedMatch(matches, customer);
+    if (!job && !matches.length) {
       job = jobs.find((j) => j && String(j.id || "").includes(wantInv)) || null;
     }
   }
+
   if (!job) return null;
-  try {
-    const ovDoc = await getStore("jobstate").get(OV_KEY, { type: "json" });
-    const patch = ovDoc?.ov?.[String(job.id)];
-    if (isPlainObject(patch)) job = deepMerge(job, patch);
-  } catch (err) {
-    // Overlay unavailable — jobsdata alone still beats a frozen snapshot.
-    console.error("[pay-link] refresh: ov overlay read failed", err);
-  }
+
+  const patch = ov[String(job.id)];
+  if (isPlainObject(patch)) job = deepMerge(job, patch);
+  if (!job.id && wantId) job = { ...job, id: wantId };
   return job;
 }
 
