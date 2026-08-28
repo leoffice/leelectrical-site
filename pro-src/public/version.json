@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "0c3a5d22bdd1ab13c3bc4ee28b3b8e4c42fd568c",
-  "gitShaShort": "0c3a5d2",
+  "gitSha": "ec81942b8dad26300a065c3bcbefb5f59ff1dcb0",
+  "gitShaShort": "ec81942",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-28T18:16:53.766Z",
-  "task": "",
+  "builtAt": "2026-08-28T18:17:47.675Z",
+  "task": "calendar freeze + add-customer nav",
   "rollbackAvailable": true
 }
