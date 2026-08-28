@@ -1,5 +1,6 @@
 // Searchable calendar picker — link an existing appointment to a job (all synced events).
-import React, { useEffect, useMemo, useState } from "react";
+// Paged + O(1) link lookup per row (freeze fix, Levi 2026-08-28).
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Sheet, { Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
@@ -11,14 +12,26 @@ import {
   searchCalendarEvents,
   suggestAppointmentsForJob,
 } from "../lib/calendarLink.js";
+import { CAL_SEARCH_PAGE } from "./CalendarSearchSheet.jsx";
 
 function formatWhen(event) {
   const s = evStart(event).replace("T", " ");
   return s.slice(0, 16) || "—";
 }
 
-function eventNoteLine(event, jobs, job) {
-  const linked = linkedJobForEvent(event, jobs);
+/** One Map of calEventId → job so each row is O(1), not O(jobs). */
+function buildCalLinkIndex(jobs) {
+  const byId = new Map();
+  for (const j of jobs || []) {
+    if (j._archived || j._deleted) continue;
+    const eid = j.calEventId;
+    if (eid) byId.set(String(eid), j);
+  }
+  return byId;
+}
+
+function eventNoteLine(event, linkIndex, job) {
+  const linked = event?.id ? linkIndex.get(String(event.id)) : null;
   const notes = displayEventNotes(event.description);
   return [
     formatWhen(event),
@@ -33,29 +46,47 @@ function eventNoteLine(event, jobs, job) {
 export default function PickAppointmentSheet({ job, onClose, onLinked }) {
   const { events, jobs, patchAndSave, enqueue, patchLocalEvent, showToast, refresh } = useStore();
   const [query, setQuery] = useState(() => appointmentSearchSeed(job));
+  const [limit, setLimit] = useState(CAL_SEARCH_PAGE);
   const [picked, setPicked] = useState(null);
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     refresh?.({ pullCalendar: true, awaitPull: false }).catch(() => {});
   }, [refresh]);
 
+  const linkIndex = useMemo(() => buildCalLinkIndex(jobs), [jobs]);
   const suggestions = useMemo(() => suggestAppointmentsForJob(job, events), [job, events]);
-  const matches = useMemo(() => searchCalendarEvents(events, query), [events, query]);
+  const matches = useMemo(
+    () => searchCalendarEvents(events, deferredQuery),
+    [events, deferredQuery]
+  );
+  const visible = matches.slice(0, limit);
+  const hasMore = matches.length > limit;
+
+  const onQueryChange = (e) => {
+    setQuery(e.target.value);
+    setLimit(CAL_SEARCH_PAGE);
+  };
 
   const renderEvent = (e) => (
     <Opt
       key={e.id || evStart(e) + e.summary}
       icon="📅"
       title={e.summary || "Appointment"}
-      note={eventNoteLine(e, jobs, job)}
+      note={eventNoteLine(e, linkIndex, job)}
       onClick={() => setPicked(e)}
     />
   );
 
   const confirmLink = async () => {
     if (!picked) return;
-    await applyAppointmentJobLink({
-      event: picked,
+    // SNAPPY: close first — enqueue/network must not freeze the sheet (lag list).
+    const event = picked;
+    showToast("Linked to " + (event.summary || "appointment"));
+    onLinked && onLinked(event);
+    onClose();
+    void applyAppointmentJobLink({
+      event,
       job,
       jobs,
       previousJobId: job.calEventId ? job.id : "",
@@ -63,9 +94,6 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
       enqueue,
       patchLocalEvent,
     });
-    showToast("Linked to " + (picked.summary || "appointment"));
-    onLinked && onLinked(picked);
-    onClose();
   };
 
   if (picked) {
@@ -104,7 +132,7 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
         className="input mb-3"
         placeholder="Search address, name, notes…"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={onQueryChange}
         aria-label="Search calendar appointments"
         data-testid="pick-appt-search"
         autoFocus
@@ -117,13 +145,23 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
       )}
 
       {matches.length ? (
-        <div className="space-y-0">
+        <div className="space-y-0" data-testid="pick-appt-results">
           {query.trim() ? (
             <div className="text-xs font-bold text-slate-500 mb-1.5 px-0.5">Search results</div>
           ) : (
             <div className="text-xs font-bold text-slate-500 mb-1.5 px-0.5">All appointments</div>
           )}
-          {matches.map(renderEvent)}
+          {visible.map(renderEvent)}
+          {hasMore ? (
+            <button
+              type="button"
+              className="btn-ghost w-full mt-2"
+              data-testid="pick-appt-load-more"
+              onClick={() => setLimit((n) => n + CAL_SEARCH_PAGE)}
+            >
+              Load more ({matches.length - limit} more)
+            </button>
+          ) : null}
         </div>
       ) : query.trim() ? (
         <div className="text-sm text-slate-400 text-center py-8">No appointments match your search.</div>

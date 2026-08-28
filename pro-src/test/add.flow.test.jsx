@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("Add flow — calendar search + add appointment", () => {
-  it("Choose from calendar uses searchable full calendar list", async () => {
+  it("Choose from calendar uses searchable paged calendar list", async () => {
     mockServer({
       events: [
         { id: "ev-old", summary: "Old job", start: "2026-01-15T10:00", location: "1 Main" },
@@ -34,6 +34,37 @@ describe("Add flow — calendar search + add appointment", () => {
     await user.type(screen.getByTestId("cal-search-input"), "elm");
     expect(screen.queryByText("Old job")).not.toBeInTheDocument();
     expect(screen.getByText("Brooklyn panel")).toBeInTheDocument();
+  });
+
+  it("Choose from calendar pages long lists (Load more) instead of mounting all rows", async () => {
+    const events = Array.from({ length: 90 }, (_, i) => {
+      const m = String((i % 12) + 1).padStart(2, "0");
+      return {
+        id: `ev-p-${i}`,
+        summary: `Paged appt ${i}`,
+        start: `2026-${m}-15T10:00`,
+        location: `${i} Page St`,
+      };
+    });
+    mockServer({ events });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
+    await user.click(screen.getByText("Choose from calendar"));
+
+    const results = await screen.findByTestId("cal-search-results");
+    const rowButtons = within(results)
+      .getAllByRole("button")
+      .filter((b) => !/load more/i.test(b.textContent || ""));
+    expect(rowButtons.length).toBeLessThanOrEqual(40);
+    expect(screen.getByTestId("cal-search-load-more")).toBeInTheDocument();
+    await user.click(screen.getByTestId("cal-search-load-more"));
+    const after = within(results)
+      .getAllByRole("button")
+      .filter((b) => !/load more/i.test(b.textContent || ""));
+    expect(after.length).toBeGreaterThan(rowButtons.length);
   });
 
   it("Add an appointment opens booking sheet (not calendar job picker)", async () => {

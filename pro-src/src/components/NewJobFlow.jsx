@@ -223,7 +223,7 @@ export default function NewJobFlow() {
             })
           }
         />
-        <Opt icon="👤" title="Add a customer" note="Form or pick from calendar" onClick={() => setNewJob({ step: "customerMenu", context })} />
+        <Opt icon="👤" title="Add a customer" note="Calendar first, or enter manually — opens the job when saved" onClick={() => setNewJob({ step: "customerMenu", context })} />
         <Opt
           icon="💵"
           title="Add a payment"
@@ -410,12 +410,10 @@ export default function NewJobFlow() {
         prefill={newJob.prefill || {}}
         fromCalendar={Boolean(newJob.fromCalendar)}
         onClose={close}
-        onCreated={(id, name, meta) => {
-          const qid = meta?.qboCustomerId;
-          const key = qid
-            ? "q:" + qid
-            : customerKeyForName(name) || (id ? "j:" + id : "");
-          if (key) nav("/customer/" + encodeURIComponent(key));
+        onChooseCalendar={() => setNewJob({ step: "customerCal", context })}
+        onCreated={(id) => {
+          // Job + customer in one place — next step (estimate / invoice) is on the job.
+          if (id) nav("/job/" + encodeURIComponent(id));
         }}
       />
     );
@@ -524,7 +522,7 @@ export default function NewJobFlow() {
       sasCallId={newJob.sasCallId || ""}
       sasRecordingUrl={newJob.sasRecordingUrl || ""}
       onClose={close}
-      onCreated={(id, meta) => {
+      onCreated={(id) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
         const pendingDoc = consumePendingDocAfterJob();
         if (pendingDoc) {
@@ -532,19 +530,15 @@ export default function NewJobFlow() {
           return;
         }
         resumeFollowUpPrompts();
-        // Calendar → job: open customer card so the new person is visible right away
-        // (Levi 2026-08-10 — Mordechai Nemne disappeared after add).
-        if (newJob.prefill?.calEventId && meta?.customerKey) {
-          nav("/customer/" + encodeURIComponent(meta.customerKey));
-        } else {
-          nav("/job/" + encodeURIComponent(id));
-        }
+        // Always open the new job (customer lives on the job card) so the next
+        // step — estimate / invoice / paperwork — is one tap away (Levi 2026-08-28).
+        nav("/job/" + encodeURIComponent(id));
       }}
     />
   );
 }
 
-function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreated }) {
+function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreated, onChooseCalendar }) {
   const { createJob, whenJobSaved, jobs, events, api, enqueue, showToast, refreshJobs } = useStore();
   const [f, setF] = useState(() => ({
     businessName: prefill.businessName || prefill.customer || "",
@@ -563,6 +557,10 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
   const [qboIndex, setQboIndex] = useState([]);
   const [saving, setSaving] = useState(false);
   const autoSavedRef = useRef(false);
+  // First paint already on "Creating…" when calendar gave us a name — no form flash / no second Save.
+  const [calendarCommit, setCalendarCommit] = useState(
+    () => fromCalendar && !!(String(prefill.businessName || prefill.customer || "").trim())
+  );
   const [isSubCompany, setIsSubCompany] = useState(
     () => !!(String(prefill.parentCustomerName || "").trim() || String(prefill.parentQboCustomerId || "").trim())
   );
@@ -600,10 +598,13 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
   );
 
   useEffect(() => {
+    // Skip the full QBO index pull when calendar already saved the customer —
+    // that fetch was blocking the first paint of Add customer (lag list #3).
+    if (fromCalendar) return;
     let cancelled = false;
     (async () => {
       try {
-        const list = await api.searchCustomers();
+        const list = await api.searchCustomers("");
         if (!cancelled) setQboIndex(Array.isArray(list) ? list : []);
       } catch {
         if (!cancelled) setQboIndex([]);
@@ -612,7 +613,7 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, fromCalendar]);
 
   const formChanged = customerFormDiffersFromBaseline(f, baseline);
   const createDisabled = formChanged && createNewCustomerDisabled(f.businessName, qboIndex);
@@ -663,7 +664,10 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
         description: fromCalendar ? prefill.description || "" : "",
         calEventId: fromCalendar ? prefill.calEventId || "" : "",
       }, fromCalendar ? prefill.calEventId || "" : "");
-      if (!id) return;
+      if (!id) {
+        setCalendarCommit(false);
+        return;
+      }
 
       const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
       const meta = {
@@ -744,7 +748,7 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
     onCreated,
   ]);
 
-  // Calendar pick already is the choice — save once the form is filled (no second deliberate "Save").
+  // Calendar pick already is the choice — save immediately (no second deliberate "Save").
   useEffect(() => {
     if (!fromCalendar || autoSavedRef.current || saving) return;
     const biz = (f.businessName || f.customer || "").trim();
@@ -771,8 +775,29 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
     if (!next) setF((o) => ({ ...o, parentCustomerName: "", parentQboCustomerId: "" }));
   };
 
+  // Calendar path with a name: "Creating…" only — pick already saved the choice (Levi 2026-08-28).
+  if (calendarCommit) {
+    const label = (f.businessName || f.customer || prefill.title || "Customer").trim();
+    return (
+      <Sheet title="Creating customer" onClose={onClose}>
+        <p className="text-sm text-slate-600 py-6 text-center" data-testid="addcustomer-autosaving">
+          Saving <b className="text-slate-900">{label}</b> from the calendar…
+        </p>
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet title="Add customer" onClose={onClose}>
+      {!fromCalendar && onChooseCalendar ? (
+        <Opt
+          icon="📅"
+          title="Choose from calendar"
+          note="Pick an appointment — creates the customer and opens the job"
+          onClick={onChooseCalendar}
+          data-testid="addcustomer-from-calendar-top"
+        />
+      ) : null}
       <Fld label="Customer name" hint="Billing entity — live match on name, phone, email, or billing address">
         <CustomerSearch
           label="Customer name"

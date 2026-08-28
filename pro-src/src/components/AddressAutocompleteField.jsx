@@ -4,13 +4,21 @@ import { collectAddressSeeds, filterLocalAddressSuggestions } from "../lib/addre
 
 const ADDRESS_DISMISS_MS = 4000;
 
-function useAddressSuggestions(value, { jobs, events, suggestAddresses }) {
+function useAddressSuggestions(value, { jobs, events, suggestAddresses, active = true }) {
   const [remote, setRemote] = useState([]);
   const [loading, setLoading] = useState(false);
   const reqRef = useRef(0);
 
-  const seeds = useMemo(() => collectAddressSeeds(jobs, events), [jobs, events]);
-  const local = useMemo(() => filterLocalAddressSuggestions(seeds, value), [seeds, value]);
+  // Only build seeds while the field is active — mounting New job / Add customer
+  // used to scan every job+event address on first paint (lag list).
+  const seeds = useMemo(
+    () => (active ? collectAddressSeeds(jobs, events) : []),
+    [active, jobs, events]
+  );
+  const local = useMemo(
+    () => (active ? filterLocalAddressSuggestions(seeds, value) : []),
+    [active, seeds, value]
+  )
 
   useEffect(() => {
     const q = String(value || "").trim();
@@ -67,7 +75,12 @@ export function AddressSuggestionList({
   loadingLabel = "Finding addresses…",
   title = "Suggested addresses",
 }) {
-  const { suggestions, loading } = useAddressSuggestions(value, { jobs, events, suggestAddresses });
+  const { suggestions, loading } = useAddressSuggestions(value, {
+    jobs,
+    events,
+    suggestAddresses,
+    active: Boolean(open),
+  });
   if (!open || !suggestions.length) return null;
   return (
     <div
