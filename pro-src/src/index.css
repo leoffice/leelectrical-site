@@ -11,6 +11,14 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Instant press flash (pairs with lib/tapFeedback.js haptic). Levi 2026-09-01. */
+.le-press-flash {
+  filter: brightness(1.16) !important;
+  box-shadow: inset 0 0 0 999px rgba(217, 119, 6, 0.28) !important;
+  transform: scale(0.98);
+  transition: filter 70ms ease, box-shadow 70ms ease, transform 70ms ease;
+}
+
 body {
   @apply antialiased text-[#0f172a];
   background-color: #f8fafc;
@@ -25,13 +33,13 @@ body {
     @apply px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors lg:px-3 lg:py-1.5 lg:text-sm;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors transition-transform disabled:opacity-50 active:scale-[0.98] active:brightness-110;
   }
   .btn-brand {
-    @apply btn bg-brand text-white hover:bg-brand-dark active:bg-brand-dark;
+    @apply btn bg-brand text-white hover:bg-brand-dark active:bg-brand-dark active:brightness-95;
   }
   .btn-ghost {
-    @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50;
+    @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 active:bg-slate-100;
   }
   .pill {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold lg:px-2.5 lg:text-xs;

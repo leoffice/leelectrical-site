@@ -6,6 +6,7 @@ import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } 
 import { DEMO } from "./lib/demoMode.js";
 import { installDemoBackend } from "./demo/demoBackend.js";
 import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
+import { installGlobalTapFeedback } from "./lib/tapFeedback.js";
 
 // Route-level split (perf Batch D, 2026-08-11): the staff graph (~2.4 MB) and
 // the customer pay page load as separate chunks — an emailed "View invoice"
@@ -28,6 +29,8 @@ if (DEMO) installDemoBackend();
 
 // Mobile keyboard: keep the focused email/message field on screen (no lag).
 installKeepFocusedVisible();
+// Every button/chip tap: color flash + haptic so the press feels registered.
+installGlobalTapFeedback();
 
 /**
  * Bootstrap public pay route from ?pay=CODE (survives 302 Location headers).

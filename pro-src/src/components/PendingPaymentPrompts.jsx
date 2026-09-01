@@ -19,141 +19,22 @@ import {
 } from "../lib/paymentAutofill.js";
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
-import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { fmt$, todayStr } from "../lib/format.js";
 import {
   collectPending,
   isOpenPaymentNotice,
 } from "../lib/pendingPaymentsCollect.js";
+import { rankJobsForPayment } from "../lib/paymentJobRank.js";
+import { nameQueryMatches } from "../lib/nameAliases.js";
+import { normalizeCustomer, isVoidCustomerName } from "../lib/customers.js";
 import { lockBodyScroll } from "../lib/scrollLock.js";
+import { hapticTap } from "../lib/tapFeedback.js";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
 import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
 import { Fld } from "./Sheet.jsx";
 import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 
 const IS_TEST = typeof process !== "undefined" && process.env && process.env.NODE_ENV === "test";
-
-/** Whole-token match — "electric" must not hit "electrical" (Kivman memo noise). */
-function wordIn(blob, tok) {
-  if (!tok || !blob) return false;
-  const t = String(tok).toLowerCase();
-  const b = String(blob).toLowerCase();
-  if (b === t) return true;
-  // Word-boundary style: start/end or non-alnum neighbors
-  const re = new RegExp(`(?:^|[^a-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^a-z0-9]|$)`);
-  return re.test(b);
-}
-
-/** Score open invoices for "Where does it go?" shortlist (Levi 2026-08-03). */
-function scoreJobForPayment(job, { amount, memo, fromName, query }) {
-  if (!job) return -1;
-  const open = parseAmount(job.openBalance);
-  const paid = job.paid === true || (job.status?.Paid && job.status.Paid.s === "done");
-  if (paid && open <= 0.01) return -1;
-  // Prefer jobs with some balance or an invoice #
-  const inv = String(job.invoiceNo || "").trim();
-  const invDigits = inv.replace(/^LE-/i, "");
-  if (!inv && open <= 0) return -1;
-  let score = 0;
-  const payAmt = parseAmount(amount);
-  if (payAmt > 0 && open > 0) {
-    if (Math.abs(open - payAmt) < 0.02) score += 100;
-    else if (Math.abs(open - payAmt) <= 1) score += 60;
-    else if (payAmt <= open + 0.02) score += 25;
-  }
-  const blob = [
-    job.customer,
-    job.customerName,
-    job.serviceAddress,
-    job.address,
-    job.billingAddress,
-    inv,
-    job.memo,
-    job.title,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  const memoL = String(memo || "").toLowerCase();
-  const fromL = String(fromName || "").toLowerCase();
-  const q = String(query || "").toLowerCase().trim();
-  if (memoL) {
-    for (const tok of memoL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)) {
-      if (wordIn(blob, tok)) score += 20;
-    }
-  }
-  let fromHits = 0;
-  const fromToks = fromL
-    ? fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)
-    : [];
-  if (fromL) {
-    // Levi 2026-08-05: payer name beats pure amount match (SIMA JOUDEH → Sima Expediter,
-    // not "open $1800" on an unrelated invoice). First token match is strong.
-    const custL = String(job.customer || job.customerName || "")
-      .toLowerCase()
-      .trim();
-    for (const tok of fromToks) {
-      if (wordIn(blob, tok) || blob.includes(tok)) {
-        score += 12;
-        fromHits += 1;
-      }
-      if (custL && (custL.includes(tok) || tok.includes(custL.split(/\s+/)[0] || ""))) {
-        score += 80;
-        fromHits += 1;
-      }
-    }
-    // Full first-word of payer equals start of customer (SIMA ↔ Sima …)
-    const firstFrom = fromToks[0] || "";
-    if (firstFrom && custL.startsWith(firstFrom)) {
-      score += 40;
-      fromHits += 1;
-    }
-    // Payer name present but zero overlap → amount-only must not top the list
-    // (Eliezer Kivman $450 ≠ Rochel Teleshevsky #231419 due $450). Levi 2026-08-13.
-    if (fromToks.length && fromHits === 0) score -= 120;
-  }
-  if (q) {
-    // Full query (incl. "le-2716") and LE- / bare digits for invoice search
-    if (blob.includes(q)) score += 50;
-    const custL = String(job.customer || job.customerName || "")
-      .toLowerCase()
-      .trim();
-    // Multi-word name search (e.g. "Yosef Sternberg") — Levi 2026-09-01.
-    if (custL && (custL.includes(q) || q.split(/\s+/).every((t) => t.length < 2 || custL.includes(t)))) {
-      score += 90;
-    }
-    const qNorm = q.replace(/^#/, "").replace(/^le-/, "le-");
-    if (inv && (inv.toLowerCase() === qNorm || inv.toLowerCase() === `le-${qNorm.replace(/^le-/, "")}`)) {
-      score += 80;
-    }
-    if (invDigits && (qNorm === invDigits || qNorm === `le-${invDigits}` || q === invDigits)) {
-      score += 80;
-    }
-    for (const tok of q.split(/[^a-z0-9.$]+/).filter((t) => t.length >= 2)) {
-      if (blob.includes(tok) || wordIn(blob, tok)) score += 15;
-      if (custL && (custL.includes(tok) || wordIn(custL, tok))) score += 40;
-      const n = parseAmount(tok);
-      if (
-        n > 0 &&
-        (Math.abs(open - n) < 0.02 ||
-          String(inv) === tok.replace(/^#/, "") ||
-          invDigits === tok.replace(/^#/, "") ||
-          invDigits === String(Math.round(n)))
-      ) {
-        score += 40;
-      }
-    }
-  }
-  if (open > 0) score += 5;
-  return score;
-}
-
-function rankJobsForPayment(jobs, opts, limit = 12) {
-  return (jobs || [])
-    .map((j) => ({ job: j, score: scoreJobForPayment(j, opts) }))
-    .filter((x) => x.score >= 0)
-    .sort((a, b) => b.score - a.score || parseAmount(a.job.openBalance) - parseAmount(b.job.openBalance))
-    .slice(0, limit);
-}
 
 /** Snooze bucket for one payment notice — see lib/dismissSnooze.js. */
 function paymentSnoozeKey(item) {
@@ -186,7 +67,16 @@ function clearNoticeFromAllJobs(jobs, item, patchJob) {
 export default function PendingPaymentPrompts() {
   const { jobs, loading } = useStoreData();
   // saveAll (not syncNow): approve must persist payments + queue QuickBooks record.
-  const { patchJob, showToast, saveAll, appendPaymentVisionFeedback, getPaymentVisionLearning } = useStore();
+  const {
+    patchJob,
+    showToast,
+    saveAll,
+    appendPaymentVisionFeedback,
+    getPaymentVisionLearning,
+    createJob,
+    enqueue,
+    api,
+  } = useStore();
   const [systemItems, setSystemItems] = useState([]);
   const [current, setCurrent] = useState(null);
   const [amt, setAmt] = useState("");
@@ -208,10 +98,15 @@ export default function PendingPaymentPrompts() {
   const [pickQuery, setPickQuery] = useState("");
   /** After Levi taps a match (or suggestion is already applied), collapse other suggestions (Levi 2026-08-05). */
   const [pickLocked, setPickLocked] = useState(true);
+  /** QBO customers not yet on the jobs board (e.g. Yossi Sternberg). Levi 2026-09-01. */
+  const [custMatches, setCustMatches] = useState([]);
+  const [custSearchBusy, setCustSearchBusy] = useState(false);
   /** Focus search when he taps Change on suggested customer/invoice (Levi 2026-08-05). */
   const jobSearchRef = useRef(null);
   const jobPickerRef = useRef(null);
   const focusSearchAfterEdit = useRef(false);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   const focusJobPicker = useCallback((opts = {}) => {
@@ -320,7 +215,9 @@ export default function PendingPaymentPrompts() {
     setSnoozing(false);
     setEditMode(false);
     setPickJobId(current.jobId || "");
-    setPickQuery("");
+    // Prefill payer so Change/search can resolve Yosef↔Yossi without retyping.
+    const seed = String(current.fromName || current.payer || "").trim();
+    setPickQuery(current.jobId ? "" : seed);
     // Pre-matched job: show only that row until Levi searches again.
     setPickLocked(Boolean(current.jobId));
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -419,13 +316,121 @@ export default function PendingPaymentPrompts() {
     [patchJob, saveAll, noticeKey, jobs]
   );
 
-  const tapFeedback = () => {
-    try {
-      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(12);
-    } catch {
-      /* ignore */
+  const tapFeedback = () => hapticTap(12);
+
+  // When the typed name isn't on the jobs board, also search QuickBooks customers
+  // (Yossi Sternberg had no open invoice yet — Levi 2026-09-01).
+  useEffect(() => {
+    if (IS_TEST) return undefined;
+    const q = String(pickQuery || "").trim();
+    if (q.length < 2 || pickLocked) {
+      setCustMatches([]);
+      setCustSearchBusy(false);
+      return undefined;
     }
-  };
+    let cancelled = false;
+    setCustSearchBusy(true);
+    const t = setTimeout(async () => {
+      try {
+        const list = (await api?.searchCustomers?.(q)) || [];
+        if (cancelled) return;
+        const boardNames = new Set(
+          (jobsRef.current || [])
+            .map((j) => normalizeCustomer(j.customer || j.customerName || j.businessName))
+            .filter(Boolean)
+        );
+        const boardQbo = new Set(
+          (jobsRef.current || [])
+            .map((j) => String(j.qboCustomerId || "").trim())
+            .filter(Boolean)
+        );
+        const out = [];
+        for (const c of list) {
+          if (!c || isVoidCustomerName(c.name || c.businessName)) continue;
+          const id = String(c.id || c.qboCustomerId || "").trim();
+          const name = String(c.name || c.businessName || "").trim();
+          if (!name) continue;
+          if (!nameQueryMatches(name, q) && !normalizeCustomer(name).includes(normalizeCustomer(q))) {
+            // Keep strong QBO fuzzy hits even when alias map misses.
+            if (!normalizeCustomer(name).includes(normalizeCustomer(q.split(/\s+/).pop() || ""))) continue;
+          }
+          if (id && boardQbo.has(id)) continue;
+          if (boardNames.has(normalizeCustomer(name))) continue;
+          out.push({
+            id,
+            name,
+            businessName: c.businessName || name,
+            personName: c.personName || "",
+            email: c.email || "",
+            phone: c.phone || "",
+            billingAddress: c.billingAddress || c.addr || "",
+          });
+          if (out.length >= 8) break;
+        }
+        setCustMatches(out);
+      } catch {
+        if (!cancelled) setCustMatches([]);
+      } finally {
+        if (!cancelled) setCustSearchBusy(false);
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [pickQuery, pickLocked, api]);
+
+  const pickQboCustomer = useCallback(
+    async (c) => {
+      if (!c || busy) return;
+      tapFeedback();
+      const name = String(c.name || c.businessName || "").trim();
+      const qboId = String(c.id || "").trim();
+      // Prefer an existing board job for this QBO id / name (race with import).
+      const existing =
+        (jobs || []).find((j) => qboId && String(j.qboCustomerId || "") === qboId) ||
+        (jobs || []).find((j) => normalizeCustomer(j.customer || j.businessName) === normalizeCustomer(name));
+      if (existing) {
+        setPickJobId(existing.id);
+        setPickQuery(name);
+        setPickLocked(true);
+        setCustMatches([]);
+        showToast("Matched " + name);
+        return;
+      }
+      setBusy(true);
+      try {
+        const id = await createJob?.({
+          customer: name,
+          businessName: name,
+          personName: c.personName || name,
+          title: "Payment received",
+          phone: c.phone || "",
+          email: c.email || "",
+          billingAddress: c.billingAddress || "",
+          qboCustomerId: qboId,
+          amount: amt || current?.amount || "",
+          notes: "Opened from payment notice — no open invoice was on the board yet",
+        });
+        if (!id) {
+          showToast("Could not open a job for " + name);
+          return;
+        }
+        setPickJobId(id);
+        setPickQuery(name);
+        setPickLocked(true);
+        setCustMatches([]);
+        showToast(name + " — job ready; Approve to apply the payment");
+        if (qboId && enqueue) {
+          const idk = "import_customer|pay|" + qboId + "|" + Date.now();
+          void enqueue("import_customer", "import-" + qboId, { name, qboId }, "deterministic", idk);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, jobs, createJob, amt, current, showToast, enqueue]
+  );
 
   const onGotIt = () => {
     if (!current) return;
@@ -832,7 +837,8 @@ export default function PendingPaymentPrompts() {
                     clearPick: false,
                     // Open search to change — show full list until they tap one (Levi 2026-08-05).
                     expandList: true,
-                    seedQuery: "",
+                    // Prefill payer name so Yosef/Yossi Sternberg ranks immediately.
+                    seedQuery: String(current.fromName || current.payer || "").trim(),
                   })
                 }
                 data-testid="pending-payment-change-match"
@@ -903,6 +909,32 @@ export default function PendingPaymentPrompts() {
           <p className="text-[11px] text-slate-500 mt-1.5">
             Source: {current.source === "pay_page" ? "Customer pay link" : current.source || "Bank / email"}
           </p>
+          {/* Ignore / Not now up top — don't bury behind scroll or ✕ snooze (Levi 2026-09-01). */}
+          {!snoozing ? (
+            <div className="mt-2.5 grid grid-cols-2 gap-2" data-testid="pending-payment-quick-dismiss">
+              <button
+                type="button"
+                className="btn-ghost w-full text-xs font-bold text-slate-600 py-2 active:scale-[0.98] active:bg-slate-100"
+                onClick={onDismiss}
+                disabled={busy}
+                data-testid="pending-payment-ignore-top"
+              >
+                Ignore — already recorded
+              </button>
+              <button
+                type="button"
+                className="btn-ghost w-full text-xs font-bold text-slate-600 py-2 active:scale-[0.98] active:bg-slate-100"
+                onClick={() => {
+                  tapFeedback();
+                  setSnoozing(true);
+                }}
+                disabled={busy}
+                data-testid="pending-payment-not-now-top"
+              >
+                Not now
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {snoozing ? (
@@ -1010,7 +1042,7 @@ export default function PendingPaymentPrompts() {
                 </p>
               </div>
               <p className="text-xs text-slate-500 -mt-1">
-                Search by name, address, invoice #, or amount due. Suggestions are always editable.
+                Search by name (Yosef finds Yossi), address, invoice #, or amount. Customers not on the board yet still show up.
               </p>
               <input
                 ref={jobSearchRef}
@@ -1045,50 +1077,76 @@ export default function PendingPaymentPrompts() {
                     pickLocked && selectedId && rows.length === 0 && selectedJob
                       ? [{ job: selectedJob, score: 100 }]
                       : rows;
-                  if (showRows.length === 0) {
+                  const showCust = !pickLocked && custMatches.length > 0;
+                  if (showRows.length === 0 && !showCust) {
                     return (
                       <div className="px-3 py-3 text-sm text-slate-500">
-                        {rankBusy
+                        {rankBusy || custSearchBusy
                           ? "Finding matches…"
-                          : "No open invoices matched — try another search."}
+                          : "No open invoices matched — try another name spelling, or Ignore if you already recorded it."}
                       </div>
                     );
                   }
-                  return showRows.map(({ job: j, score }) => {
-                    const selected = selectedId === String(j.id);
-                    return (
-                      <button
-                        type="button"
-                        key={j.id}
-                        className={`w-full text-left px-3 py-2.5 text-sm ${
-                          selected ? "bg-brand/10 ring-inset ring-2 ring-brand" : "bg-white active:bg-slate-50"
-                        }`}
-                        onClick={() => {
-                          setPickJobId(j.id);
-                          setPickQuery(
-                            String(j.customer || j.customerName || j.invoiceNo || "").trim()
-                          );
-                          setPickLocked(true);
-                        }}
-                        data-testid={"pending-payment-job-" + j.id}
-                      >
-                        <div className="font-extrabold text-slate-900">
-                          {j.customer || j.customerName || "Customer"}
-                          {selected && pickLocked ? " ✓" : ""}
-                        </div>
-                        <div className="text-slate-600 text-xs mt-0.5">
-                          {j.invoiceNo ? `#${j.invoiceNo}` : "No inv #"}
-                          {j.openBalance != null && j.openBalance !== ""
-                            ? ` · due ${fmt$(j.openBalance)}`
-                            : ""}
-                        </div>
-                        <div className="text-slate-500 text-xs truncate">
-                          {j.serviceAddress || j.address || ""}
-                          {!pickLocked && score >= 40 ? " · likely match" : ""}
-                        </div>
-                      </button>
-                    );
-                  });
+                  return (
+                    <>
+                      {showRows.map(({ job: j, score }) => {
+                        const selected = selectedId === String(j.id);
+                        return (
+                          <button
+                            type="button"
+                            key={j.id}
+                            className={`w-full text-left px-3 py-2.5 text-sm ${
+                              selected ? "bg-brand/10 ring-inset ring-2 ring-brand" : "bg-white active:bg-slate-50"
+                            }`}
+                            onClick={() => {
+                              setPickJobId(j.id);
+                              setPickQuery(
+                                String(j.customer || j.customerName || j.invoiceNo || "").trim()
+                              );
+                              setPickLocked(true);
+                              setCustMatches([]);
+                            }}
+                            data-testid={"pending-payment-job-" + j.id}
+                          >
+                            <div className="font-extrabold text-slate-900">
+                              {j.customer || j.customerName || "Customer"}
+                              {selected && pickLocked ? " ✓" : ""}
+                            </div>
+                            <div className="text-slate-600 text-xs mt-0.5">
+                              {j.invoiceNo ? `#${j.invoiceNo}` : "No inv #"}
+                              {j.openBalance != null && j.openBalance !== ""
+                                ? ` · due ${fmt$(j.openBalance)}`
+                                : ""}
+                            </div>
+                            <div className="text-slate-500 text-xs truncate">
+                              {j.serviceAddress || j.address || ""}
+                              {!pickLocked && score >= 40 ? " · likely match" : ""}
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {showCust
+                        ? custMatches.map((c) => (
+                            <button
+                              type="button"
+                              key={"qbo-" + (c.id || c.name)}
+                              className="w-full text-left px-3 py-2.5 text-sm bg-amber-50/80 active:bg-amber-100"
+                              onClick={() => void pickQboCustomer(c)}
+                              disabled={busy}
+                              data-testid={"pending-payment-qbo-cust-" + (c.id || "x")}
+                            >
+                              <div className="font-extrabold text-slate-900">{c.name}</div>
+                              <div className="text-amber-800 text-xs mt-0.5 font-semibold">
+                                In QuickBooks — not on the board yet · tap to open a job
+                              </div>
+                              {c.billingAddress ? (
+                                <div className="text-slate-500 text-xs truncate">{c.billingAddress}</div>
+                              ) : null}
+                            </button>
+                          ))
+                        : null}
+                    </>
+                  );
                 })()}
               </div>
               {pickLocked ? (
