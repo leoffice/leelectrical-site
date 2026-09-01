@@ -2246,9 +2246,8 @@ export default function DocBuilderSheet({
         });
         return;
       } else {
-        // QBO path — close UI immediately (same snappy pattern as local send).
-        // Serial await enqueue + PDF download was the ~30s Save+Send lag with
-        // payment link (commands + attach + send_* + downloadLocalPdf).
+        // QBO / non-local path — close UI first (snappy). Do not await enqueue/PDF with builder open.
+        // Levi 2026-08-21 RED LINE: never queue QuickBooks email after create.
         const recurNote =
           showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
         const attNote =
@@ -2257,16 +2256,23 @@ export default function DocBuilderSheet({
               ? " · " + attsForEmail.length + " file(s) in email"
               : " · files on job only (not emailed)"
             : "";
-        showToast(
-          send
-            ? "Sending to QuickBooks and emailing " +
-              emailTo +
-              (withPay ? " with payment link" : "") +
+        if (send && emailTo) {
+          showToast(
+            "Saved to QuickBooks — send the " +
+              (kind === "estimate" ? "estimate" : "invoice") +
+              " from LE Pro (local PDF), not through QuickBooks" +
               recurNote +
-              attNote +
+              attNote
+          );
+        } else {
+          showToast(
+            "Sending " +
+              (kind === "estimate" ? "estimate" : "invoice") +
+              " to QuickBooks" +
+              recurNote +
               "…"
-            : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
-        );
+          );
+        }
         resumeFollowUpPrompts();
         onDone && onDone({ ...activeJob, ...jobPatch });
         if (opts.close !== false) {
@@ -2276,24 +2282,23 @@ export default function DocBuilderSheet({
         setSaving(false);
 
         const runQboBg = async () => {
-          const enqueueJobs = [];
-          for (let i = 0; i < commands.length; i++) {
-            const cmd = commands[i];
-            const payload = {
-              ...cmd.payload,
-              email: emailTo || cmd.payload.email,
-              message: customMsg || undefined,
-              includePaymentLink: send ? withPay : undefined,
-              attachments: i === 0 ? (send ? attsForEmail : attsForQbo) : [],
-              includeAttachmentsInEmail: send ? attsForEmail.length > 0 : undefined,
-            };
-            enqueueJobs.push(enqueue(cmd.type, jobId, payload, "judgment", cmd.idk));
-          }
-
-          for (const att of attsForQbo) {
-            const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
-            enqueueJobs.push(
-              enqueue(
+          await Promise.allSettled(
+            commands.map((cmd, i) => {
+              const payload = {
+                ...cmd.payload,
+                email: emailTo || cmd.payload.email,
+                message: customMsg || undefined,
+                includePaymentLink: send ? withPay : undefined,
+                attachments: i === 0 ? (send ? attsForEmail : attsForQbo) : [],
+                includeAttachmentsInEmail: send ? attsForEmail.length > 0 : undefined,
+              };
+              return enqueue(cmd.type, jobId, payload, "judgment", cmd.idk);
+            })
+          );
+          await Promise.allSettled(
+            attsForQbo.map((att) => {
+              const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
+              return enqueue(
                 attachType,
                 jobId,
                 {
@@ -2306,48 +2311,26 @@ export default function DocBuilderSheet({
                 },
                 "deterministic",
                 "att:" + kind + ":" + jobId + ":" + att.name + ":" + Date.now()
-              )
-            );
-          }
-
-          if (send && emailTo) {
-            const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
-            const no = activeJob[noKey] || jobPatch[noKey];
-            if (no) {
-              enqueueJobs.push(
-                enqueue(
-                  "send_" + kind,
-                  jobId,
-                  {
-                    email: emailTo,
-                    [noKey]: no,
-                    message: customMsg || undefined,
-                    includePaymentLink: withPay,
-                    docSource: DOC_SOURCE_QBO,
-                    attachments: attsForEmail,
-                    includeAttachmentsInEmail: attsForEmail.length > 0,
-                  },
-                  "deterministic",
-                  "send_" + kind + ":" + no
-                )
               );
-              logSend(
-                jobId,
-                (kind === "estimate" ? "Estimate" : "Invoice") +
-                  " send queued after create" +
-                  (withPay ? " + payment link" : ""),
-                emailTo
-              );
-            }
-          }
-
-          await Promise.all(enqueueJobs.map((p) => Promise.resolve(p).catch(() => {})));
+            })
+          );
           // PDF is best-effort background — never block navigation on it.
           void downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
         };
-        runQboBg().catch(() => {
-          showToast("QuickBooks sync hit a snag — open the doc and try again");
-        });
+        const kickQboBg = () => {
+          runQboBg().catch(() => {
+            showToast("QuickBooks sync hit a snag — open the document and try again");
+          });
+        };
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setTimeout(kickQboBg, 0);
+            });
+          });
+        } else {
+          setTimeout(kickQboBg, 0);
+        }
         return;
       }
       resumeFollowUpPrompts();
