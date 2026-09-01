@@ -1,6 +1,14 @@
 // Login notices for customer pay-page check photos (and bank Zelle alerts).
 // Levi: see picture → zoom → Autofill → correct → Approve → stages payment on the job.
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { appendPayment, normalizePayments, removePayment } from "../lib/payments.js";
 import { analyzePaymentImage, compressImageForVision, fileToBase64 } from "../lib/paymentVision.js";
@@ -12,6 +20,11 @@ import {
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import {
+  collectPending,
+  isOpenPaymentNotice,
+} from "../lib/pendingPaymentsCollect.js";
+import { lockBodyScroll } from "../lib/scrollLock.js";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
 import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
 import { Fld } from "./Sheet.jsx";
@@ -101,6 +114,13 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
   if (q) {
     // Full query (incl. "le-2716") and LE- / bare digits for invoice search
     if (blob.includes(q)) score += 50;
+    const custL = String(job.customer || job.customerName || "")
+      .toLowerCase()
+      .trim();
+    // Multi-word name search (e.g. "Yosef Sternberg") — Levi 2026-09-01.
+    if (custL && (custL.includes(q) || q.split(/\s+/).every((t) => t.length < 2 || custL.includes(t)))) {
+      score += 90;
+    }
     const qNorm = q.replace(/^#/, "").replace(/^le-/, "le-");
     if (inv && (inv.toLowerCase() === qNorm || inv.toLowerCase() === `le-${qNorm.replace(/^le-/, "")}`)) {
       score += 80;
@@ -110,6 +130,7 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
     }
     for (const tok of q.split(/[^a-z0-9.$]+/).filter((t) => t.length >= 2)) {
       if (blob.includes(tok) || wordIn(blob, tok)) score += 15;
+      if (custL && (custL.includes(tok) || wordIn(custL, tok))) score += 40;
       const n = parseAmount(tok);
       if (
         n > 0 &&
@@ -137,76 +158,6 @@ function rankJobsForPayment(jobs, opts, limit = 12) {
 /** Snooze bucket for one payment notice — see lib/dismissSnooze.js. */
 function paymentSnoozeKey(item) {
   return "payment:" + String(item?.id || "");
-}
-
-/** Statuses that still need Levi to see a card (Levi 2026-08-03 sticky notice). */
-function isOpenPaymentNotice(p) {
-  if (!p) return false;
-  const s = String(p.status || "pending");
-  if (s === "dismissed" || s === "acked") return false;
-  // Explicit Approve (incl. reassignment to Sima etc.) always closes — Levi 2026-08-05 bounce bug.
-  // Must check before autoApplied sticky, or "approved" + autoApplied keeps popping forever.
-  if (s === "approved") return false;
-  if (p.ackedAt) return false;
-  // Host auto-apply: sticky until Got it / Edit+Approve (status stays auto_applied until then).
-  if (p.autoApplied && s === "auto_applied") return true;
-  if (s === "pending" || s === "auto_applied" || s === "needs_match") return true;
-  return false;
-}
-
-/** Active (non-tombstone) payment refs on a job. */
-function activePaymentRefs(job) {
-  const refs = new Set();
-  for (const p of normalizePayments(job) || []) {
-    const r = String(p?.ref || p?.confirmationNumber || p?.checkNumber || "").trim();
-    if (r) refs.add(r);
-  }
-  return refs;
-}
-
-/**
- * Conf already recorded on some job (after reassign/approve) — suppress sticky on the
- * *wrong* job so Marozov doesn't keep popping when Sima already has the payment.
- * Still shows auto_applied sticky when conf lives on the same suggested job (Got it).
- */
-function noticeConfAlreadyOnOtherJob(p, jobs) {
-  if (!p || !jobs?.length) return false;
-  const conf = String(p.confirmationNumber || p.ref || p.checkNumber || "").trim();
-  if (!conf) return false;
-  const noticeJob = String(p.jobId || "").trim();
-  for (const j of jobs) {
-    if (!activePaymentRefs(j).has(conf)) continue;
-    // Payment lives here — if notice still points elsewhere (or has no job), hide it.
-    if (!noticeJob || String(j.id) !== noticeJob) return true;
-  }
-  return false;
-}
-
-function collectPending(jobs, systemItems = []) {
-  const out = [];
-  const seen = new Set();
-  for (const j of jobs || []) {
-    const p = j?.pendingCheckPayment || j?.pendingZellePayment;
-    if (!isOpenPaymentNotice(p)) continue;
-    if (noticeConfAlreadyOnOtherJob({ ...p, jobId: j.id }, jobs)) continue;
-    const id = p.id || `${j.id}-${p.proofKey || p.confirmationNumber || p.amount}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({ ...p, jobId: j.id, job: j, id });
-  }
-  for (const p of systemItems || []) {
-    if (!isOpenPaymentNotice(p)) continue;
-    if (noticeConfAlreadyOnOtherJob(p, jobs)) continue;
-    const id = p.id || `sys-${p.proofKey || p.confirmationNumber || p.amount}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const job = (jobs || []).find((j) => String(j.id) === String(p.jobId)) || null;
-    out.push({ ...p, id, job });
-  }
-  // Newest first
-  out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  // A snoozed notice is still pending — it just isn't due yet.
-  return out.filter((p) => !isSuggestionSnoozed(paymentSnoozeKey(p)));
 }
 
 /** Clear pendingZelle/Check on every job that still carries this notice id/conf. */
@@ -265,13 +216,16 @@ export default function PendingPaymentPrompts() {
 
   const focusJobPicker = useCallback((opts = {}) => {
     const { clearPick = false, seedQuery = "", expandList = true } = opts;
-    setEditMode(true);
-    if (clearPick) setPickJobId("");
-    if (seedQuery != null && seedQuery !== "") setPickQuery(String(seedQuery));
-    // Change → expand full list; row pick locks (Levi 2026-08-05).
-    setPickLocked(!expandList);
-    // Picker may not be mounted yet (auto-applied card) — focus after paint via effect.
-    focusSearchAfterEdit.current = true;
+    // Transition so the tap paints before the (deferred) 4k-job rank starts.
+    startTransition(() => {
+      setEditMode(true);
+      if (clearPick) setPickJobId("");
+      if (seedQuery != null && seedQuery !== "") setPickQuery(String(seedQuery));
+      // Change → expand full list; row pick locks (Levi 2026-08-05).
+      setPickLocked(!expandList);
+      // Picker may not be mounted yet (auto-applied card) — focus after paint via effect.
+      focusSearchAfterEdit.current = true;
+    });
   }, []);
 
   useEffect(() => {
@@ -333,7 +287,10 @@ export default function PendingPaymentPrompts() {
   }, []);
 
   const queue = useMemo(() => {
-    const raw = collectPending(jobs, systemItems);
+    // Snooze stays pending on disk — hide until due (board-wide dismiss rule).
+    const raw = collectPending(jobs, systemItems).filter(
+      (p) => !isSuggestionSnoozed(paymentSnoozeKey(p))
+    );
     if (!closedKeys.size) return raw;
     return raw.filter((p) => {
       const k = noticeKey(p);
@@ -440,55 +397,55 @@ export default function PendingPaymentPrompts() {
         // UI only keeps open notices; tombstones stay on disk.
         return sealedList.filter((x) => isOpenPaymentNotice(x));
       });
-      // Persist system queue + job overlay (Got it must stick — Levi 2026-08-03 bounce bug).
-      try {
-        const { default: api } = await import("../data/adapter.js");
-        let base = sealedList;
+      // Persist in background — never block Got it / Dismiss / Approve (Levi 2026-09-01 lag).
+      void (async () => {
         try {
-          const remote = await api.getPendingPayments?.();
-          if (Array.isArray(remote)) base = seal(remote);
+          const { default: api } = await import("../data/adapter.js");
+          let base = sealedList;
+          try {
+            const remote = await api.getPendingPayments?.();
+            if (Array.isArray(remote)) base = seal(remote);
+          } catch {
+            /* use sealedList */
+          }
+          await api.savePendingPayments?.(base);
+          setSystemItems(base.filter((x) => isOpenPaymentNotice(x)));
         } catch {
-          /* use sealedList */
+          /* optional — poll will reconcile */
         }
-        await api.savePendingPayments?.(base);
-        setSystemItems(base.filter((x) => isOpenPaymentNotice(x)));
-      } catch {
-        /* optional */
-      }
-      if (done) {
-        try {
-          await saveAll?.();
-        } catch {
-          /* toast below */
-        }
-      }
+        if (done) void saveAll?.();
+      })();
     },
     [patchJob, saveAll, noticeKey, jobs]
   );
 
-  const onGotIt = async () => {
-    if (!current) return;
-    setBusy(true);
+  const tapFeedback = () => {
     try {
-      await clearPending(current, "acked");
-      setCurrent(null);
-      showToast("Got it — payment notice closed");
-    } finally {
-      setBusy(false);
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(12);
+    } catch {
+      /* ignore */
     }
   };
 
-  const onDismiss = async () => {
+  const onGotIt = () => {
     if (!current) return;
-    setBusy(true);
-    try {
-      await clearPending(current, "dismissed");
-      setCurrent(null);
-      setSnoozing(false);
-      showToast("Payment notice dismissed");
-    } finally {
-      setBusy(false);
-    }
+    tapFeedback();
+    const item = current;
+    setCurrent(null);
+    setSnoozing(false);
+    showToast("Got it — payment notice closed");
+    // SNAPPY: close first; persist in background (was awaiting clearPending ~tens of sec).
+    void clearPending(item, "acked");
+  };
+
+  const onDismiss = () => {
+    if (!current) return;
+    tapFeedback();
+    const item = current;
+    setCurrent(null);
+    setSnoozing(false);
+    showToast("Ignored — already handled / not dealing with it now");
+    void clearPending(item, "dismissed");
   };
 
   // Board-wide rule: ✕ / "not now" parks the notice instead of dropping it.
@@ -574,25 +531,82 @@ export default function PendingPaymentPrompts() {
   // Keyed on the live values, every keystroke in Amount/Memo/Search blocked the
   // input for the whole scan (perf hotfix 2026-08-12 — "recording payments is
   // laggy"). Deferred values keep typing instant; the list catches up on pause.
+  //
+  // SNAPPY 2026-09-01: do NOT rank the whole board when the card first opens.
+  // Locked suggestion / Got-it ack only needs the one pinned row. Full rank
+  // runs after Change / search, and only on idle so swipe stays live.
   const dAmt = useDeferredValue(amt);
   const dMemo = useDeferredValue(memo);
   const dPickQuery = useDeferredValue(pickQuery);
-  const matchCandidates = useMemo(() => {
-    if (!current) return [];
-    const ranked = rankJobsForPayment(jobs, {
-      amount: dAmt || current.amount,
-      memo: dMemo || current.memo,
-      fromName: current.fromName || current.payer,
-      query: dPickQuery,
-    });
-    // Keep the current suggestion visible even if score is weak / list is short.
+  const ackOnly =
+    Boolean(current) &&
+    !editMode &&
+    (Boolean(current.autoApplied) || String(current.status || "") === "auto_applied");
+  const pinnedOnly =
+    Boolean(current) &&
+    pickLocked &&
+    !String(dPickQuery || "").trim() &&
+    Boolean(String(pickJobId || current.jobId || "").trim());
+  const syncCandidates = useMemo(() => {
+    if (!current || ackOnly) return [];
     const pinnedId = String(pickJobId || current.jobId || "").trim();
-    if (pinnedId && !ranked.some((x) => String(x.job.id) === pinnedId)) {
+    if (pinnedOnly && pinnedId) {
       const pinned = (jobs || []).find((j) => String(j.id) === pinnedId);
-      if (pinned) ranked.unshift({ job: pinned, score: 0 });
+      return pinned ? [{ job: pinned, score: 0 }] : [];
     }
-    return ranked;
-  }, [jobs, current, dAmt, dMemo, dPickQuery, pickJobId]);
+    return null; // full rank needed — schedule below
+  }, [jobs, current, pickJobId, ackOnly, pinnedOnly]);
+
+  const [asyncCandidates, setAsyncCandidates] = useState([]);
+  const [rankBusy, setRankBusy] = useState(false);
+  useEffect(() => {
+    if (syncCandidates !== null) {
+      setAsyncCandidates(syncCandidates);
+      setRankBusy(false);
+      return undefined;
+    }
+    if (!current) {
+      setAsyncCandidates([]);
+      setRankBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setRankBusy(true);
+    const run = () => {
+      if (cancelled) return;
+      const ranked = rankJobsForPayment(jobs, {
+        amount: dAmt || current.amount,
+        memo: dMemo || current.memo,
+        fromName: current.fromName || current.payer,
+        query: dPickQuery,
+      });
+      const pinnedId = String(pickJobId || current.jobId || "").trim();
+      if (pinnedId && !ranked.some((x) => String(x.job.id) === pinnedId)) {
+        const pinned = (jobs || []).find((j) => String(j.id) === pinnedId);
+        if (pinned) ranked.unshift({ job: pinned, score: 0 });
+      }
+      if (cancelled) return;
+      startTransition(() => {
+        setAsyncCandidates(ranked);
+        setRankBusy(false);
+      });
+    };
+    // Yield to paint / scroll first — payment card must stay swipeable.
+    let idleId = 0;
+    let t = 0;
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(run, { timeout: 450 });
+    } else {
+      t = setTimeout(run, 32);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId && typeof cancelIdleCallback === "function") cancelIdleCallback(idleId);
+      if (t) clearTimeout(t);
+    };
+  }, [syncCandidates, jobs, current, dAmt, dMemo, dPickQuery, pickJobId]);
+
+  const matchCandidates = syncCandidates !== null ? syncCandidates : asyncCandidates;
 
   const onApprove = async () => {
     if (!current) return;
@@ -618,118 +632,118 @@ export default function PendingPaymentPrompts() {
       showToast("Enter the payment amount");
       return;
     }
-    setBusy(true);
-    try {
-      const method = current.kind === "zelle" ? "Zelle" : "Check";
-      const payRef = String(ref || "").trim();
-      // If suggestion pointed at the wrong job (auto-apply / weak match), pull that payment off first.
-      const prevJobId = String(current.jobId || current.job?.id || "").trim();
-      if (prevJobId && String(prevJobId) !== String(job.id)) {
-        const prevJob =
-          (jobs || []).find((j) => String(j.id) === prevJobId) || current.job || null;
-        if (prevJob) {
-          const confs = new Set(
-            [payRef, current.confirmationNumber, current.ref, current.checkNumber]
-              .map((x) => String(x || "").trim())
-              .filter(Boolean)
-          );
-          const existing = normalizePayments(prevJob).find((p) => {
-            const r = String(p.ref || p.confirmationNumber || p.checkNumber || "").trim();
-            return r && confs.has(r);
+    tapFeedback();
+    const notice = current;
+    const method = notice.kind === "zelle" ? "Zelle" : "Check";
+    const payRef = String(ref || "").trim();
+    // Close card immediately — heavy work continues in background (Levi 2026-09-01).
+    setCurrent(null);
+    setSnoozing(false);
+    setBusy(false);
+
+    // If suggestion pointed at the wrong job (auto-apply / weak match), pull that payment off first.
+    const prevJobId = String(notice.jobId || notice.job?.id || "").trim();
+    if (prevJobId && String(prevJobId) !== String(job.id)) {
+      const prevJob =
+        (jobs || []).find((j) => String(j.id) === prevJobId) || notice.job || null;
+      if (prevJob) {
+        const confs = new Set(
+          [payRef, notice.confirmationNumber, notice.ref, notice.checkNumber]
+            .map((x) => String(x || "").trim())
+            .filter(Boolean)
+        );
+        const existing = normalizePayments(prevJob).find((p) => {
+          const r = String(p.ref || p.confirmationNumber || p.checkNumber || "").trim();
+          return r && confs.has(r);
+        });
+        if (existing?.id) {
+          const cleared = removePayment(prevJob, existing.id, {
+            reason: "Reassigned from payment notice",
           });
-          if (existing?.id) {
-            const cleared = removePayment(prevJob, existing.id, {
-              reason: "Reassigned from payment notice",
-            });
-            const clearKey =
-              method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-            patchJob(prevJob.id, { ...cleared, [clearKey]: null });
-          } else {
-            const clearKey =
-              method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-            patchJob(prevJob.id, { [clearKey]: null });
-          }
+          const clearKey =
+            method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+          patchJob(prevJob.id, { ...cleared, [clearKey]: null });
+        } else {
+          const clearKey =
+            method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+          patchJob(prevJob.id, { [clearKey]: null });
         }
       }
-      // Train the reader from Levi's fixes before saving payment.
+    }
+    // Train the reader from Levi's fixes — never block approve.
+    void (async () => {
       try {
         const entry = buildPaymentVisionLearningEntry({
           kind: method === "Zelle" ? "zelle" : "check",
-          extracted: autofillExtracted || current.extracted || null,
+          extracted: autofillExtracted || notice.extracted || null,
           finalFields: {
             amount: payAmt,
             ref: payRef,
             date: dt,
             memo,
-            invoiceNo: job.invoiceNo || current.invoiceNo || "",
-            payer: job.customer || current.customer || "",
-            openBalanceDefault: current.amount || "",
+            invoiceNo: job.invoiceNo || notice.invoiceNo || "",
+            payer: job.customer || notice.customer || "",
+            openBalanceDefault: notice.amount || "",
           },
           jobId: job.id,
-          invoiceNo: job.invoiceNo || current.invoiceNo || "",
-          proofName: current.fileName || current.proofKey || "",
+          invoiceNo: job.invoiceNo || notice.invoiceNo || "",
+          proofName: notice.fileName || notice.proofKey || "",
         });
         if (entry) await appendPaymentVisionFeedback?.(entry);
       } catch {
         /* never block approve */
       }
-      // Already on the chosen job from a correct auto-apply — don't double-book the same conf.
-      const alreadyOnJob =
-        payRef &&
-        normalizePayments(job).some(
-          (p) => String(p.ref || p.confirmationNumber || "").trim() === payRef
-        );
-      const noteBits = [
-        method,
-        payRef ? (method === "Check" ? `Check #${payRef}` : `ref ${payRef}`) : "",
-        memo ? `memo ${memo}` : "",
-        current.proofKey ? `proof:${current.proofKey}` : "",
-        deposit ? `Deposit: ${deposit}` : "",
-        "Approved from pay-page notice",
-      ].filter(Boolean);
-      const patch = alreadyOnJob
-        ? {
-            paid: job.paid,
-            openBalance: job.openBalance,
-          }
-        : appendPayment(job, {
-            amount: payAmt,
-            method,
-            ref: payRef,
-            date: dt || todayStr(),
-            note: noteBits.join(" · "),
-            depositTo: deposit || undefined,
-            paymentProofName: current.fileName || current.proofKey || undefined,
-            paymentAutofilled: Boolean(autofillDone),
-            zelleVerified: method === "Zelle" ? Boolean(payRef) : undefined,
-          });
-      const clearKey = method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-      // Clear pending field entirely — do not leave approved+autoApplied sticky (Sima bounce).
-      patchJob(job.id, {
-        ...patch,
-        [clearKey]: null,
-      });
-      await clearPending(current, "acked");
-      setCurrent(null);
-      // Persist + queue record_payment (same path as job Payment tab Save & sync).
-      try {
-        await saveAll?.();
-        showToast(
-          patch.paid
-            ? "Marked paid and saved — QuickBooks catches up in the background · fixes train the reader"
-            : `Partial payment approved (${fmt$(payAmt)}) — saved · fixes train the reader`
-        );
-      } catch {
-        showToast(
-          patch.paid
-            ? "Marked paid — tap Save & sync so QuickBooks catches up"
-            : `Partial payment staged (${fmt$(payAmt)}) — tap Save & sync to finish`
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
+    })();
+    // Already on the chosen job from a correct auto-apply — don't double-book the same conf.
+    const alreadyOnJob =
+      payRef &&
+      normalizePayments(job).some(
+        (p) => String(p.ref || p.confirmationNumber || "").trim() === payRef
+      );
+    const noteBits = [
+      method,
+      payRef ? (method === "Check" ? `Check #${payRef}` : `ref ${payRef}`) : "",
+      memo ? `memo ${memo}` : "",
+      notice.proofKey ? `proof:${notice.proofKey}` : "",
+      deposit ? `Deposit: ${deposit}` : "",
+      "Approved from pay-page notice",
+    ].filter(Boolean);
+    const patch = alreadyOnJob
+      ? {
+          paid: job.paid,
+          openBalance: job.openBalance,
+        }
+      : appendPayment(job, {
+          amount: payAmt,
+          method,
+          ref: payRef,
+          date: dt || todayStr(),
+          note: noteBits.join(" · "),
+          depositTo: deposit || undefined,
+          paymentProofName: notice.fileName || notice.proofKey || undefined,
+          paymentAutofilled: Boolean(autofillDone),
+          zelleVerified: method === "Zelle" ? Boolean(payRef) : undefined,
+        });
+    const clearKey = method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+    // Clear pending field entirely — do not leave approved+autoApplied sticky (Sima bounce).
+    patchJob(job.id, {
+      ...patch,
+      [clearKey]: null,
+    });
+    void clearPending(notice, "acked");
+    void saveAll?.();
+    showToast(
+      patch.paid
+        ? "Marked paid — QuickBooks catches up in the background"
+        : `Partial payment approved (${fmt$(payAmt)}) — saved`
+    );
   };
+
+  // Freeze the jobs list behind the card so swipe goes to the notice, not the board.
+  useEffect(() => {
+    if (IS_TEST || loading || !current) return undefined;
+    return lockBodyScroll();
+  }, [loading, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (IS_TEST || loading || !current) return null;
 
@@ -780,9 +794,13 @@ export default function PendingPaymentPrompts() {
       className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40 p-3"
       data-testid="pending-payment-prompt"
       role="dialog"
+      aria-modal="true"
       aria-label={title}
     >
-      <div className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-xl border border-slate-200">
+      <div
+        className="w-full max-w-md max-h-[92vh] overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-xl border border-slate-200"
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+      >
         <div className="px-4 pt-4 pb-2 border-b border-slate-100">
           <button
             type="button"
@@ -905,7 +923,7 @@ export default function PendingPaymentPrompts() {
             </p>
             <button
               type="button"
-              className="btn bg-brand text-white w-full font-bold"
+              className="btn bg-brand text-white w-full font-bold active:scale-[0.98] active:brightness-95 transition-transform"
               onClick={onGotIt}
               data-testid="pending-payment-got-it"
             >
@@ -913,8 +931,11 @@ export default function PendingPaymentPrompts() {
             </button>
             <button
               type="button"
-              className="btn bg-slate-800 text-white w-full font-bold"
-              onClick={() => setEditMode(true)}
+              className="btn bg-slate-800 text-white w-full font-bold active:scale-[0.98] active:brightness-95 transition-transform"
+              onClick={() => {
+                tapFeedback();
+                startTransition(() => setEditMode(true));
+              }}
               data-testid="pending-payment-edit"
             >
               Edit
@@ -955,11 +976,22 @@ export default function PendingPaymentPrompts() {
             </button>
             <button
               type="button"
-              className="btn-ghost w-full text-sm"
-              onClick={() => setSnoozing(true)}
+              className="btn-ghost w-full text-sm active:scale-[0.98] active:bg-slate-100 transition-transform"
+              onClick={() => {
+                tapFeedback();
+                setSnoozing(true);
+              }}
               data-testid="pending-payment-not-now"
             >
               Not now — remind me later
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm text-slate-500 active:scale-[0.98] active:bg-slate-100 transition-transform"
+              onClick={onDismiss}
+              data-testid="pending-payment-ignore"
+            >
+              Ignore — I already recorded this
             </button>
           </div>
         ) : (
@@ -1016,7 +1048,9 @@ export default function PendingPaymentPrompts() {
                   if (showRows.length === 0) {
                     return (
                       <div className="px-3 py-3 text-sm text-slate-500">
-                        No open invoices matched — try another search.
+                        {rankBusy
+                          ? "Finding matches…"
+                          : "No open invoices matched — try another search."}
                       </div>
                     );
                   }
@@ -1122,7 +1156,7 @@ export default function PendingPaymentPrompts() {
           <div className="px-4 pb-4 flex flex-col gap-2">
             <button
               type="button"
-              className="btn bg-brand text-white w-full font-bold"
+              className="btn bg-brand text-white w-full font-bold active:scale-[0.98] active:brightness-95 transition-transform"
               onClick={onApprove}
               disabled={busy || (!selectedJob && !pickJobId)}
               data-testid="pending-payment-approve"
@@ -1137,12 +1171,24 @@ export default function PendingPaymentPrompts() {
             </button>
             <button
               type="button"
-              className="btn-ghost w-full text-sm"
-              onClick={() => setSnoozing(true)}
+              className="btn-ghost w-full text-sm active:scale-[0.98] active:bg-slate-100 transition-transform"
+              onClick={() => {
+                tapFeedback();
+                setSnoozing(true);
+              }}
               disabled={busy}
               data-testid="pending-payment-not-now"
             >
               Not now — remind me later
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm text-slate-500 active:scale-[0.98] active:bg-slate-100 transition-transform"
+              onClick={onDismiss}
+              disabled={busy}
+              data-testid="pending-payment-ignore"
+            >
+              Ignore — I already recorded this
             </button>
           </div>
           </>

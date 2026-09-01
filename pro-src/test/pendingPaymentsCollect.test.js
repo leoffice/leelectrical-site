@@ -1,67 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-// Mirrors PendingPaymentPrompts helpers (keep in sync when bounce rules change).
-
-function isOpenPaymentNotice(p) {
-  if (!p) return false;
-  const s = String(p.status || "pending");
-  if (s === "dismissed" || s === "acked") return false;
-  if (s === "approved") return false;
-  if (p.ackedAt) return false;
-  if (p.autoApplied && s === "auto_applied") return true;
-  if (s === "pending" || s === "auto_applied" || s === "needs_match") return true;
-  return false;
-}
-
-function normalizePayments(job) {
-  const list = Array.isArray(job?.payments) ? job.payments : [];
-  return list.filter((p) => p && !p._deleted);
-}
-
-function activePaymentRefs(job) {
-  const refs = new Set();
-  for (const p of normalizePayments(job) || []) {
-    const r = String(p?.ref || p?.confirmationNumber || p?.checkNumber || "").trim();
-    if (r) refs.add(r);
-  }
-  return refs;
-}
-
-function noticeConfAlreadyOnOtherJob(p, jobs) {
-  if (!p || !jobs?.length) return false;
-  const conf = String(p.confirmationNumber || p.ref || p.checkNumber || "").trim();
-  if (!conf) return false;
-  const noticeJob = String(p.jobId || "").trim();
-  for (const j of jobs) {
-    if (!activePaymentRefs(j).has(conf)) continue;
-    if (!noticeJob || String(j.id) !== noticeJob) return true;
-  }
-  return false;
-}
-
-function collectPending(jobs, systemItems = []) {
-  const out = [];
-  const seen = new Set();
-  for (const j of jobs || []) {
-    const p = j?.pendingCheckPayment || j?.pendingZellePayment;
-    if (!isOpenPaymentNotice(p)) continue;
-    if (noticeConfAlreadyOnOtherJob({ ...p, jobId: j.id }, jobs)) continue;
-    const id = p.id || `${j.id}-${p.proofKey || p.confirmationNumber || p.amount}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push({ ...p, jobId: j.id, job: j, id });
-  }
-  for (const p of systemItems || []) {
-    if (!isOpenPaymentNotice(p)) continue;
-    if (noticeConfAlreadyOnOtherJob(p, jobs)) continue;
-    const id = p.id || `sys-${p.proofKey || p.confirmationNumber || p.amount}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const job = (jobs || []).find((j) => String(j.id) === String(p.jobId)) || null;
-    out.push({ ...p, id, job });
-  }
-  return out;
-}
+import { collectPending } from "../src/lib/pendingPaymentsCollect.js";
 
 describe("pending payment collect", () => {
   it("picks pending check on job and skips approved", () => {
@@ -171,5 +109,28 @@ describe("pending payment collect", () => {
       },
     ];
     expect(collectPending([], systemItems)).toHaveLength(0);
+  });
+
+  it("stays O(jobs) when many jobs have payments (no N² freeze)", () => {
+    const jobs = [];
+    for (let i = 0; i < 800; i++) {
+      jobs.push({
+        id: "j-" + i,
+        payments: [{ id: "p-" + i, amount: "10", ref: "REF" + i }],
+      });
+    }
+    jobs[0].pendingZellePayment = {
+      id: "pend-1",
+      status: "pending",
+      confirmationNumber: "UNIQUE-OPEN",
+      amount: "50",
+      jobId: "j-0",
+    };
+    const t0 = Date.now();
+    const list = collectPending(jobs, []);
+    const ms = Date.now() - t0;
+    expect(list).toHaveLength(1);
+    // Indexed path should be well under a second even in jsdom; N² used to hang phones.
+    expect(ms).toBeLessThan(250);
   });
 });

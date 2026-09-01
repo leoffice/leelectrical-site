@@ -5,6 +5,7 @@
 // beforeunload prompt + an in-app leave sheet (Save & continue / Discard / Stay).
 import React, {
   createContext,
+  startTransition,
   useCallback,
   useContext,
   useEffect,
@@ -14,6 +15,7 @@ import React, {
 } from "react";
 // Dual context: typing only invalidates EditCtx. Shell watchers that only need
 // jobs/events/commands subscribe via useStoreData and stay idle while you type.
+// Quiet polls apply via startTransition so swipe/scroll stay ahead of backend refresh.
 import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
@@ -64,10 +66,24 @@ const DRAFT_KEY = "lepro_draft_v1";
 // Background polls fire every 8–60s. When the fetched snapshot is byte-for-byte
 // what we already hold, returning the SAME reference lets React bail out of the
 // render — so idle ticks never re-render the tree (and never stutter typing in
-// an open sheet or drag of a floating card). The stringify cost is trivial next
-// to a full-tree re-render.
+// an open sheet or drag of a floating card).
+//
+// NEVER JSON.stringify multi-thousand job/event arrays — that alone froze swipe
+// for ~a minute when a payment notice landed (Levi 2026-09-01). Large lists
+// compare by row identity; small lists still deep-compare.
 function sameSnapshot(a, b) {
   if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    let changed = 0;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) changed += 1;
+    }
+    if (changed === 0) return true;
+    // 4k-job board / big calendar: a new row object means "different" — do not
+    // re-serialize megabytes on the main thread just to prove it.
+    if (a.length > 100) return false;
+  }
   try {
     return JSON.stringify(a) === JSON.stringify(b);
   } catch {
@@ -77,6 +93,12 @@ function sameSnapshot(a, b) {
 /** setState that no-ops (keeps identity) when the next value equals the current. */
 function keepIfSame(setter, next) {
   setter((prev) => (sameSnapshot(prev, next) ? prev : next));
+}
+/** Background poll apply — low priority so finger scroll isn't starved. */
+function keepIfSameDeferred(setter, next) {
+  startTransition(() => {
+    setter((prev) => (sameSnapshot(prev, next) ? prev : next));
+  });
 }
 const DRAFT_PERSIST_MS = 400;
 
@@ -194,7 +216,7 @@ export function StoreProvider({ children }) {
       // server snapshot includes them — a mid-save refresh was dropping the job
       // and showing "Job local-… not found" right after Save + Create.
       if (stale || incoming.length || !jobsCountRef.current) {
-        setJobs((prev) => {
+        const applyJobs = (prev) => {
           // Adapter returns the same array ref when jobsdata+state are unchanged
           // (304 polls). Keep identity so the Jobs list and badge memos bail out
           // without re-stringifying multi-MB snapshots.
@@ -210,9 +232,14 @@ export function StoreProvider({ children }) {
           }
           // Empty incoming blip — keep prev
           return prev;
-        });
+        };
+        // Quiet polls (60s / payment fetch / visibility) must not steal the
+        // main thread from swipe — Levi 2026-09-01 payment-notice freeze.
+        if (quiet) startTransition(() => setJobs(applyJobs));
+        else setJobs(applyJobs);
       }
-      setSyncedAt(meta.syncedAt || 0);
+      if (quiet) startTransition(() => setSyncedAt(meta.syncedAt || 0));
+      else setSyncedAt(meta.syncedAt || 0);
       setError("");
       return meta;
     } catch (e) {
@@ -227,7 +254,7 @@ export function StoreProvider({ children }) {
 
   const refreshCommands = useCallback(async () => {
     try {
-      keepIfSame(setCommands, await api.listCommands());
+      keepIfSameDeferred(setCommands, await api.listCommands());
     } catch {}
   }, []);
 
@@ -239,21 +266,27 @@ export function StoreProvider({ children }) {
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
       const meta = await api.listEventsMeta();
-      setEvents((prev) => {
+      const applyEvents = (prev) => {
         const merged = mergePendingEvents(prev, meta.events || []);
         return sameSnapshot(prev, merged) ? prev : merged;
-      });
-      setEventsSyncedAt(meta.syncedAt || 0);
+      };
+      // Background calendar ticks yield to scroll; explicit pull stays urgent.
+      if (!awaitPull || !pull) startTransition(() => setEvents(applyEvents));
+      else setEvents(applyEvents);
+      if (!awaitPull || !pull) startTransition(() => setEventsSyncedAt(meta.syncedAt || 0));
+      else setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
         const beforeSync = meta.syncedAt || 0;
         const run = async () => {
           const evs = await api.pullCalendar();
-          setEvents((prev) => {
-            const merged = mergePendingEvents(prev, evs);
-            return sameSnapshot(prev, merged) ? prev : merged;
+          startTransition(() => {
+            setEvents((prev) => {
+              const merged = mergePendingEvents(prev, evs);
+              return sameSnapshot(prev, merged) ? prev : merged;
+            });
           });
           const m = await api.listEventsMeta();
-          setEventsSyncedAt(m.syncedAt || 0);
+          startTransition(() => setEventsSyncedAt(m.syncedAt || 0));
           return (m.syncedAt || 0) > beforeSync;
         };
         if (awaitPull) {
@@ -291,7 +324,7 @@ export function StoreProvider({ children }) {
 
   const refreshDev = useCallback(async () => {
     try {
-      keepIfSame(setDevTasks, await api.listDevTasks());
+      keepIfSameDeferred(setDevTasks, await api.listDevTasks());
     } catch {}
   }, []);
 
@@ -299,15 +332,15 @@ export function StoreProvider({ children }) {
   const refreshSas = useCallback(async () => {
     try {
       const [calls, tickets] = await Promise.all([api.listSasCalls(), api.getSasTickets()]);
-      keepIfSame(setSasCalls, Array.isArray(calls) ? calls : []);
-      keepIfSame(setSasTickets, tickets || {});
+      keepIfSameDeferred(setSasCalls, Array.isArray(calls) ? calls : []);
+      keepIfSameDeferred(setSasTickets, tickets || {});
     } catch {}
   }, []);
 
   const refreshEmailInsights = useCallback(async () => {
     if (!api.listEmailInsights) return;
     try {
-      keepIfSame(setEmailInsights, await api.listEmailInsights());
+      keepIfSameDeferred(setEmailInsights, await api.listEmailInsights());
     } catch {}
   }, []);
 
@@ -1484,10 +1517,30 @@ export function StoreProvider({ children }) {
 
   // Use base jobs (not effectiveJobs) so typing staged notes doesn't recompute
   // badges and invalidate DataCtx for the whole shell.
-  const reminderBadge = useMemo(
-    () => activeReminderCount(events, jobs, todayStr(), new Date(), commands),
-    [events, jobs, commands]
-  );
+  // Idle: scanning events×jobs for the badge must not freeze swipe when a
+  // payment notice refreshes the board (Levi 2026-09-01).
+  const [reminderBadge, setReminderBadge] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      const n = activeReminderCount(events, jobs, todayStr(), new Date(), commands);
+      if (cancelled) return;
+      startTransition(() => setReminderBadge(n));
+    };
+    let idleId = 0;
+    let t = 0;
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(run, { timeout: 900 });
+    } else {
+      t = setTimeout(run, 40);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId && typeof cancelIdleCallback === "function") cancelIdleCallback(idleId);
+      if (t) clearTimeout(t);
+    };
+  }, [events, jobs, commands]);
 
   const devBadge = useMemo(
     () => devTasks.filter((t) => ["question", "verify"].includes(t.status)).length,
