@@ -33,12 +33,13 @@ export default function EditAppointmentSheet({
 
   const busJobId = linkedJobId || "today";
 
-  const remove = async () => {
+  const remove = () => {
     if (!event.id) return onClose();
-    await enqueue("calendar_delete", busJobId, { calEventId: event.id }, "judgment", "caldel:" + event.id);
+    // SNAPPY: close first — delete queues in background.
     showToast("Appointment delete queued");
     onDeleted && onDeleted(event.id);
     onClose();
+    void enqueue("calendar_delete", busJobId, { calEventId: event.id }, "judgment", "caldel:" + event.id);
   };
 
   if (duplicating) {

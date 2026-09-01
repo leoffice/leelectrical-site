@@ -31,20 +31,22 @@ export default function LinkJobSheet({ event, previousJobId, onClose, onLinked }
     showToast("New job for " + customerName);
   };
 
-  const confirmLink = async () => {
+  const confirmLink = () => {
     if (!picked || picked._newFor) return;
-    await applyAppointmentJobLink({
+    // SNAPPY: close first — match PickAppointmentSheet (network must not freeze sheet).
+    const job = picked;
+    showToast("Linked & synced to " + (job.customer || "job"));
+    onLinked && onLinked(job);
+    onClose();
+    void applyAppointmentJobLink({
       event,
-      job: picked,
+      job,
       jobs,
       previousJobId,
       patchAndSave,
       enqueue,
       patchLocalEvent,
     });
-    showToast("Linked & synced to " + (picked.customer || "job"));
-    onLinked && onLinked(picked);
-    onClose();
   };
 
   if (picked && !picked._newFor) {
