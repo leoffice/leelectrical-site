@@ -8,10 +8,10 @@ import { installDemoBackend } from "./demo/demoBackend.js";
 import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
 import { installGlobalTapFeedback } from "./lib/tapFeedback.js";
 
-// Route-level split (perf Batch D, 2026-08-11): the staff graph (~2.4 MB) and
-// the customer pay page load as separate chunks — an emailed "View invoice"
-// link no longer downloads the whole staff app, and the staff boot skips the
-// pay-page code.
+// Route-level split (perf Batch D, 2026-08-11 + Batch E 2026-09-01): entry is
+// tiny; StaffApp is the lock shell only; Store+App load after unlock (and
+// prefetch while the password screen is up). Pay pages stay separate so an
+// emailed "View invoice" link never downloads the staff app.
 const StaffApp = React.lazy(() => import("./StaffApp.jsx"));
 const PayLanding = React.lazy(() => import("./views/PayLanding.jsx"));
 const PayThanks = React.lazy(() => import("./views/PayThanks.jsx"));

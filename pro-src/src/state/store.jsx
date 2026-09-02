@@ -56,6 +56,8 @@ import {
   auditPatchOnly,
 } from "../lib/auditTrail.js";
 import { readSession } from "../lib/session.js";
+import { readJobsDiskCache, scheduleJobsDiskCacheWrite } from "../lib/jobsDiskCache.js";
+import { awaitJobsBootWarm, peekJobsBootWarm } from "../lib/jobsBootWarm.js";
 
 const DataCtx = createContext(null);
 const EditCtx = createContext(null);
@@ -241,6 +243,15 @@ export function StoreProvider({ children }) {
       if (quiet) startTransition(() => setSyncedAt(meta.syncedAt || 0));
       else setSyncedAt(meta.syncedAt || 0);
       setError("");
+      // Disk cache for next cold open / first login (idle — never blocks paint).
+      // Prefer the server merge when fresh; skip empty/stale blips.
+      if (!stale && incoming.length) {
+        scheduleJobsDiskCacheWrite({
+          jobs: incoming,
+          syncedAt: meta.syncedAt || 0,
+          stateTs: meta.stateTs || 0,
+        });
+      }
       return meta;
     } catch (e) {
       const msg = String((e && e.message) || e);
@@ -371,8 +382,16 @@ export function StoreProvider({ children }) {
     async (quiet, opts = {}) => {
       const pullCal = opts.pullCalendar === true;
       const awaitPull = opts.awaitPull !== false;
+      // Critical path first: jobs unblock the Jobs board. Secondary feeds
+      // (commands/dev/SAS/email/nomerge/calendar) must not delay first paint
+      // after unlock (Levi 2026-09-01: first login too slow).
+      const jobsOnly = opts.jobsOnly === true;
+      if (jobsOnly) {
+        await refreshJobs(quiet);
+        return;
+      }
+      await refreshJobs(quiet);
       await Promise.all([
-        refreshJobs(quiet),
         refreshEvents({ pull: pullCal, awaitPull }),
         refreshCommands(),
         refreshDev(),
@@ -385,8 +404,61 @@ export function StoreProvider({ children }) {
   );
 
   useEffect(() => {
-    refresh(false);
-    refreshEvents({ pull: true, awaitPull: false });
+    // Boot (perf Batch E): lock-screen warm / disk cache → paint Jobs ASAP →
+    // quiet network refresh → secondary feeds. Never wait on calendar/commands
+    // to show the board after unlock.
+    let cancelled = false;
+    (async () => {
+      let hadCache = false;
+      // Prefer an in-flight warm from the password screen (same session).
+      try {
+        const warmed = peekJobsBootWarm() || (await awaitJobsBootWarm());
+        if (cancelled) return;
+        if (warmed?.jobs?.length) {
+          hadCache = true;
+          setJobs(warmed.jobs);
+          setSyncedAt(warmed.syncedAt || 0);
+          setLoading(false);
+        }
+      } catch {
+        /* warm is best-effort */
+      }
+      if (!hadCache) {
+        try {
+          const cached = await readJobsDiskCache();
+          if (cancelled) return;
+          if (cached?.jobs?.length) {
+            hadCache = true;
+            setJobs(cached.jobs);
+            setSyncedAt(cached.syncedAt || 0);
+            setLoading(false);
+          }
+        } catch {
+          /* disk cache is best-effort */
+        }
+      }
+      if (cancelled) return;
+      // Quiet when we already painted from warm/disk — avoid a loading flash.
+      // Warm already fetched once; a quiet refresh still picks up ETag 304s fast.
+      await refreshJobs(hadCache);
+      if (cancelled) return;
+      // Yield a frame so React can paint the jobs board before secondary work.
+      await new Promise((r) => {
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => r());
+        else setTimeout(r, 0);
+      });
+      if (cancelled) return;
+      void Promise.all([
+        refreshEvents({ pull: false }),
+        refreshCommands(),
+        refreshDev(),
+        refreshSas(),
+        refreshEmailInsights(),
+        refreshNomerge(),
+      ]);
+      // Calendar network pull last — can be slow on cellular.
+      void refreshEvents({ pull: true, awaitPull: false });
+    })();
     const t1 = setInterval(() => refreshJobs(true), 60_000);
     const t2 = setInterval(refreshCommands, 8_000);
     const t3 = setInterval(refreshDev, 30_000);
@@ -406,10 +478,11 @@ export function StoreProvider({ children }) {
     };
     document.addEventListener("visibilitychange", vis);
     return () => {
+      cancelled = true;
       [t1, t2, t3, t4, t5, t6, t7].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights]);
+  }, [refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights, refreshNomerge]);
 
   /** Once-daily customer + invoice dedupe scan after jobs load — deferred so the list can paint first. */
   const dedupeFpRef = useRef("");

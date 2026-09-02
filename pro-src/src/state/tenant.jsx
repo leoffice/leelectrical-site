@@ -1,9 +1,11 @@
 // Tenant config provider — loads tenant_config once at app boot and hands it
 // to the nav + route gates and every branding surface.
 //
-// Boot blocks on this fetch by design. Rendering the app first and stripping
-// routes afterwards would mean a disabled route is briefly mounted and
-// reachable — exactly the hole the golden rule exists to close.
+// First paint uses device cache or the build seed (fail-closed), then refreshes
+// from the cloud in the background (perf Batch E). Seed/cache never widen
+// access beyond what the last known config allowed; a successful cloud fetch
+// may add modules. Disabled routes are still gated by the resolved config —
+// never registered when the module is off.
 //
 // Offline / endpoint-down behaviour is FAIL-CLOSED: fall back to the last
 // cached config, then to the build seed. For a tenant build the seed is Free
@@ -58,15 +60,15 @@ function writeCache(raw) {
 
 export function TenantProvider({ children }) {
   const { getSettings } = useStore();
-  const [raw, setRaw] = useState(null);
-  const [ready, setReady] = useState(false);
+  // Always paint immediately from cache or seed — never block unlock on the
+  // settings round-trip (perf Batch E). Cloud refresh below may widen modules.
+  const [raw, setRaw] = useState(() => readCache());
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        // Boot blocks on this call, so it must not be able to hang the app on
-        // a dead or slow endpoint. Time it out and fall back to cache/seed.
+        // Cap the network wait so a dead endpoint can't hang the refresh.
         const doc =
           typeof getSettings === "function"
             ? await Promise.race([
@@ -94,9 +96,8 @@ export function TenantProvider({ children }) {
         }
       } catch {
         if (!alive) return;
-        setRaw(readCache()); // null -> seed, which is fail-closed
-      } finally {
-        if (alive) setReady(true);
+        // Keep painted cache/seed; only clear when we have nothing.
+        setRaw((prev) => prev || readCache());
       }
     })();
     return () => {
@@ -114,22 +115,11 @@ export function TenantProvider({ children }) {
     return viewAs ? asLesserTenant(resolved, viewAs) : resolved;
   }, [raw]);
 
-  // Publish to the module-level snapshot so PDF builders, email templates and
-  // other non-React callers can read branding without prop-drilling.
-  useEffect(() => {
-    setActiveTenantConfig(config);
-  }, [config]);
-
-  if (!ready) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center text-sm font-semibold text-slate-400"
-        data-testid="tenant-boot"
-      >
-        Loading…
-      </div>
-    );
-  }
+  // Publish synchronously during render (not useEffect). lazyInternal routes
+  // read activeTenantConfig() on first mount; an effect runs too late and can
+  // permanently cache NotFound when we paint from seed before cloud settings
+  // land (perf Batch E).
+  setActiveTenantConfig(config);
 
   return <Ctx.Provider value={config}>{children}</Ctx.Provider>;
 }
