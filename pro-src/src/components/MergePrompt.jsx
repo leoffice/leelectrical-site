@@ -243,9 +243,13 @@ export default function MergePrompt() {
   const budgetOk = canShowNameSortPrompt();
 
   const sug = useMemo(() => {
-    if (loading || !budgetOk) return null;
+    if (!budgetOk) return null;
+    // Don't start a fresh heavy scan while jobs are still loading — but never
+    // drop an already-open card when a long refresh flips loading (Levi
+    // 2026-09-01: popups stick / unresponsive when loading >1 min).
+    if (loading && !opened) return null;
     return findMergeSuggestion(jobs);
-  }, [jobs, loading, tick, budgetOk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobs, loading, tick, budgetOk, opened]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Count each name-sort card against today's shared cap (once per pair).
   useEffect(() => {

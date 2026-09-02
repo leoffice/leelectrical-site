@@ -18,6 +18,7 @@ import React, {
 // Quiet polls apply via startTransition so swipe/scroll stay ahead of backend refresh.
 import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard } from "../data/merge.js";
+import { anySheetOpen } from "../lib/sheetRegistry.js";
 import { STAGES } from "../lib/stages.js";
 import { calendarServiceLocation } from "../lib/customerSync.js";
 import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
@@ -206,6 +207,13 @@ export function StoreProvider({ children }) {
   const jobFirstSaveRef = useRef(new Map());
   const refreshJobs = useCallback(async (quiet) => {
     if (!quiet) setLoading(true);
+    // Watchdog: never leave the UI in loading forever — long cellular fetches
+    // were freezing popups for >1 min (Levi 2026-09-01).
+    const loadingWatch = !quiet
+      ? setTimeout(() => {
+          setLoading(false);
+        }, 20_000)
+      : null;
     try {
       const meta = await api.listJobsMeta();
       // The overlay lives in eventually-consistent storage: a snapshot older
@@ -235,13 +243,15 @@ export function StoreProvider({ children }) {
           // Empty incoming blip — keep prev
           return prev;
         };
-        // Quiet polls (60s / payment fetch / visibility) must not steal the
-        // main thread from swipe — Levi 2026-09-01 payment-notice freeze.
-        if (quiet) startTransition(() => setJobs(applyJobs));
+        // Quiet polls / already-painted jobs / open sheets must not steal the
+        // main thread from swipe / open popups — Levi 2026-09-01.
+        const deferJobs = quiet || jobsCountRef.current > 0 || anySheetOpen();
+        if (deferJobs) startTransition(() => setJobs(applyJobs));
         else setJobs(applyJobs);
       }
-      if (quiet) startTransition(() => setSyncedAt(meta.syncedAt || 0));
-      else setSyncedAt(meta.syncedAt || 0);
+      if (quiet || jobsCountRef.current > 0 || anySheetOpen()) {
+        startTransition(() => setSyncedAt(meta.syncedAt || 0));
+      } else setSyncedAt(meta.syncedAt || 0);
       setError("");
       // Disk cache for next cold open / first login (idle — never blocks paint).
       // Prefer the server merge when fresh; skip empty/stale blips.
@@ -255,10 +265,17 @@ export function StoreProvider({ children }) {
       return meta;
     } catch (e) {
       const msg = String((e && e.message) || e);
-      // Prefer a plain phrase for timeouts (shown in the red retry banner).
-      setError(msg.includes("timed out") ? "Jobs took too long to load — tap Retry" : msg);
+      // Prefer a plain phrase for timeouts / SPA-HTML blips (red retry banner).
+      setError(
+        msg.includes("timed out")
+          ? "Jobs took too long to load — tap Retry"
+          : /web page instead of data|Unexpected token|invalid data/i.test(msg)
+            ? "bad response from the server"
+            : msg
+      );
       return null;
     } finally {
+      if (loadingWatch) clearTimeout(loadingWatch);
       setLoading(false);
     }
   }, []);

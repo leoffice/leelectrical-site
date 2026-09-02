@@ -194,7 +194,10 @@ export default function PendingPaymentPrompts() {
   }, [jobs, systemItems, closedKeys, noticeKey]);
 
   useEffect(() => {
-    if (loading) return;
+    // Don't pick a NEW notice while jobs are still loading — but never freeze /
+    // unmount an already-open card when a long refresh flips loading (Levi
+    // 2026-09-01: popups stick / unresponsive when loading >1 min).
+    if (loading && !current) return;
     if (current) {
       // Keep current if still in queue
       if (queue.some((q) => q.id === current.id)) return;
@@ -745,12 +748,14 @@ export default function PendingPaymentPrompts() {
   };
 
   // Freeze the jobs list behind the card so swipe goes to the notice, not the board.
+  // Keep the lock while the card is open even if a long jobs refresh sets loading
+  // (otherwise the card unmounts mid-tap and feels stuck — Levi 2026-09-01).
   useEffect(() => {
-    if (IS_TEST || loading || !current) return undefined;
+    if (IS_TEST || !current) return undefined;
     return lockBodyScroll();
-  }, [loading, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (IS_TEST || loading || !current) return null;
+  if (IS_TEST || !current) return null;
 
   const job = current.job;
   // Always honor Levi's pick over the suggestion (suggestions can be wrong).
@@ -811,7 +816,11 @@ export default function PendingPaymentPrompts() {
             type="button"
             aria-label="Close"
             className="float-right w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold text-sm"
-            onClick={() => setSnoozing((s) => !s)}
+            onClick={() => {
+              // Always allow dismiss — never trapped behind busy/autofill (Levi 2026-09-01).
+              if (snoozing) setSnoozing(false);
+              else onDismiss();
+            }}
             data-testid="pending-payment-close"
           >
             ✕
@@ -916,7 +925,6 @@ export default function PendingPaymentPrompts() {
                 type="button"
                 className="btn-ghost w-full text-xs font-bold text-slate-600 py-2 active:scale-[0.98] active:bg-slate-100"
                 onClick={onDismiss}
-                disabled={busy}
                 data-testid="pending-payment-ignore-top"
               >
                 Ignore — already recorded
@@ -928,7 +936,6 @@ export default function PendingPaymentPrompts() {
                   tapFeedback();
                   setSnoozing(true);
                 }}
-                disabled={busy}
                 data-testid="pending-payment-not-now-top"
               >
                 Not now
@@ -1234,7 +1241,6 @@ export default function PendingPaymentPrompts() {
                 tapFeedback();
                 setSnoozing(true);
               }}
-              disabled={busy}
               data-testid="pending-payment-not-now"
             >
               Not now — remind me later
@@ -1243,7 +1249,6 @@ export default function PendingPaymentPrompts() {
               type="button"
               className="btn-ghost w-full text-sm text-slate-500 active:scale-[0.98] active:bg-slate-100 transition-transform"
               onClick={onDismiss}
-              disabled={busy}
               data-testid="pending-payment-ignore"
             >
               Ignore — I already recorded this

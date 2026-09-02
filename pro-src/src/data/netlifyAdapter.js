@@ -63,6 +63,43 @@ async function authedHeaders(extra) {
   return { ...(extra || {}), ...(await authHeader()) };
 }
 
+/**
+ * Parse a fetch Response as JSON without leaking SPA HTML as
+ * `Unexpected token '<'` (Levi 2026-09-01). Cloudflare/Netlify can return a
+ * 200 HTML shell when a function path misses during deploy — treat that as a
+ * clear reachability error so the red banner stays readable.
+ */
+async function readJson(res, path) {
+  const label = String(path || "request").split("?")[0] || "request";
+  const ct =
+    (res.headers && typeof res.headers.get === "function" && res.headers.get("content-type")) || "";
+  if (String(ct).includes("text/html")) {
+    throw new Error(`${label}: server returned a web page instead of data`);
+  }
+  // Prefer text() so a wrong/missing content-type still can't surprise .json().
+  if (typeof res.text === "function") {
+    const text = await res.text();
+    const head = String(text || "")
+      .trimStart()
+      .slice(0, 15)
+      .toLowerCase();
+    if (head.startsWith("<!doctype") || head.startsWith("<html")) {
+      throw new Error(`${label}: server returned a web page instead of data`);
+    }
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/Unexpected token/.test(msg)) {
+        throw new Error(`${label}: server returned invalid data — try again`);
+      }
+      throw e;
+    }
+  }
+  // Test stubs / odd Responses that only expose json().
+  return res.json();
+}
+
 async function http(path, body, opts = {}) {
   const res = await fetchWithTimeout(
     `${base()}/${path}`,
@@ -75,7 +112,7 @@ async function http(path, body, opts = {}) {
     timeoutForPath(path)
   );
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  return res.json();
+  return readJson(res, path);
 }
 
 /** Like http(), but keeps JSON bodies on 4xx/5xx (send-doc-email dry-run / no_api_key). */
@@ -97,7 +134,7 @@ async function httpAllowErrorBody(path, body) {
   );
   let data = null;
   try {
-    data = await res.json();
+    data = await readJson(res, path);
   } catch {
     data = null;
   }
@@ -133,7 +170,7 @@ async function httpConditional(path) {
   );
   if (res.status === 304 && entry) return entry.data;
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  const data = await res.json();
+  const data = await readJson(res, path);
   const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
   if (etag) condCache.set(path, { etag, data });
   return data;

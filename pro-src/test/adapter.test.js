@@ -278,6 +278,23 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(meta.jobs.find((j) => j.id === "JP-001").paid).toBe(true);
   });
 
+  it("rejects SPA HTML (200 doctype) instead of Unexpected token '<'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: { get: (h) => (String(h).toLowerCase() === "content-type" ? "text/html" : null) },
+        text: async () => "<!DOCTYPE html><html><body>shell</body></html>",
+        json: async () => {
+          throw new Error("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON");
+        },
+      }))
+    );
+    const api = createNetlifyAdapter();
+    await expect(api.listJobsMeta()).rejects.toThrow(/web page instead of data/i);
+  });
+
   it("saveJob sends ONE incremental PATCH — no full-blob GET or POST (perf Batch B)", async () => {
     const calls = stubFetch({
       state: (call) =>
