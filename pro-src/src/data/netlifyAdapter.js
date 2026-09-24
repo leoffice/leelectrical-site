@@ -8,6 +8,13 @@
 //   chat      floating-bubble conversations (op:msg)
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
+import {
+  combinePatches,
+  dropOutboxIfGen,
+  flushSavedPatches as replayOutbox,
+  peekQueued,
+  queueSavedPatch,
+} from "./ovOutbox.js";
 import { functionsBase } from "../lib/functionsBase.js";
 import { authHeader } from "../lib/session.js";
 import { emailKeyHeader } from "../lib/emailSendAuth.js";
@@ -209,6 +216,7 @@ export function createNetlifyAdapter() {
   // Last full ov we POSTed. Used only when a GET is still lagging behind our
   // write — prefer this over multi-second retry sleeps (keeps Save snappy).
   let cachedOv = null;
+  const stampMem = new Map();
   const freshState = async () => {
     // Always GET once (picks up other-device writes). If blob is lagging behind
     // our last POST, return the session cache immediately — no 0.35–2s sleep.
@@ -299,44 +307,81 @@ export function createNetlifyAdapter() {
       return last;
     },
 
-    /** Incremental save (perf Batch B, 2026-08-11): HTTP PATCH { id, patch }
-     *  and the server deep-merges into ov[id]. No more full-blob GET + POST
-     *  per save (~4.5 MB each way, 65% of it audit log). Method PATCH on
-     *  purpose: an OLD server treats an unknown method as a plain read and
-     *  writes nothing (a POST op would have hit its `body.ov || {}` path and
-     *  wiped the overlay), so the fallback below is always safe. */
+    /** Incremental save. PATCH { id, patch } is one key, not the overlay.
+     *  If the server does not ack PATCH, POST that same key only
+     *  (`op: "patch"`). A network failure queues the key for replay.
+     *  The full cached ov is never posted — that was the job-wipe. */
     async saveJob(id, patch) {
       const run = async () => {
-        try {
-          const res = await http("state", { id, patch: patch || {} }, { method: "PATCH" });
-          if (res && res.ok && res.patched != null) {
-            if (res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
-            let entry;
-            if (cachedOv) {
-              entry = deepMerge(cachedOv[id] || {}, patch || {});
-              if (String(id).charAt(0) !== "_") entry._savedAt = res.ts || Date.now();
-              cachedOv = { ...cachedOv, [id]: entry };
+        const queued = peekQueued(id);
+        const startGen = queued ? queued.gen : 0;
+        const combined = queued ? combinePatches(queued.patch, patch) : patch == null ? {} : patch;
+        const staleErr = () => {
+          const err = new Error("stale_write");
+          err.code = "stale_write";
+          return err;
+        };
+        const remember = (res) => {
+          if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+          if (res && res.stamps) {
+            for (const [k, v] of Object.entries(res.stamps)) {
+              if (v && (v._savedAt != null || v._version != null)) stampMem.set(k, v);
             }
-            return { ok: true, ts: res.ts, ov: entry };
           }
-        } catch {
-          /* fall through to the legacy full-blob path */
+        };
+        const finish = (res) => {
+          remember(res);
+          let entry;
+          if (cachedOv) {
+            if (Array.isArray(combined) || !isPlainObject(combined)) entry = combined;
+            else {
+              entry = deepMerge(isPlainObject(cachedOv[id]) ? cachedOv[id] : {}, combined);
+              if (String(id).charAt(0) !== "_") entry._savedAt = (res && res.ts) || Date.now();
+            }
+            cachedOv = { ...cachedOv, [id]: entry };
+          }
+          dropOutboxIfGen(id, startGen);
+          return { ok: true, ts: res && res.ts, ov: entry, skipped: (res && res.skipped) || [] };
+        };
+        const skippedThis = (res) =>
+          Array.isArray(res && res.skipped) && res.skipped.some((s) => s && s.key === id);
+        try {
+          const res = await http(
+            "state",
+            { id, patch: combined, ...(stampMem.get(id) ? { base: stampMem.get(id) } : {}) },
+            { method: "PATCH" }
+          );
+          if (skippedThis(res)) {
+            dropOutboxIfGen(id, startGen);
+            throw staleErr();
+          }
+          if (res && res.ok && res.patched != null) return finish(res);
+        } catch (e) {
+          if (e && (e.code === "stale_write" || e.message === "stale_write")) throw e;
+          queueSavedPatch(id, patch);
+          throw e;
         }
-        const state = await freshState();
-        const baseOv = (state && state.ov) || {};
-        const ov = { ...baseOv };
-        ov[id] = deepMerge(baseOv[id] || {}, patch || {});
-        if (String(id).charAt(0) !== "_") ov[id]._savedAt = Date.now();
-        const res = await http("state", { ov });
-        if (res && res.ts) {
-          lastWriteTs = Math.max(lastWriteTs, res.ts);
-          cachedOv = ov;
+        try {
+          const res = await http("state", { op: "patch", ov: { [id]: combined } });
+          if (skippedThis(res)) {
+            dropOutboxIfGen(id, startGen);
+            throw staleErr();
+          }
+          return finish(res);
+        } catch (e) {
+          if (e && (e.code === "stale_write" || e.message === "stale_write")) throw e;
+          queueSavedPatch(id, patch);
+          throw e;
         }
-        return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
       saveQ = p.catch(() => {}); // one failure must not wedge the queue
       return p;
+    },
+
+    /** Replay patches that failed while offline. Never posts the full ov. */
+    async flushSavedPatches() {
+      return replayOutbox((id, patch) => this.saveJob(id, patch));
     },
 
     async listCommands(jobId) {
@@ -530,7 +575,9 @@ export function createNetlifyAdapter() {
       // every 60s. The cb() cache-buster defeated exactly that.
       const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
-      return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
+      if (!isPlainObject(ov._sasTickets)) return {};
+      const { _savedAt, _version, ...rest } = ov._sasTickets;
+      return rest;
     },
 
     /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
@@ -580,15 +627,11 @@ export function createNetlifyAdapter() {
 
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
-      const state = await freshState();
-      const ov = { ...((state && state.ov) || {}) };
+      const state = cachedOv ? { ov: cachedOv } : await freshState();
+      const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
-      ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) {
-        lastWriteTs = Math.max(lastWriteTs, res.ts);
-        cachedOv = ov;
-      }
+      const next = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
+      await this.saveJob("_invoiceEditLearning", next);
       return { ok: true };
     },
 
@@ -601,15 +644,11 @@ export function createNetlifyAdapter() {
 
     async appendPaymentVisionFeedback(entry) {
       if (!entry || !Array.isArray(entry.deltas) || !entry.deltas.length) return { ok: false };
-      const state = await freshState();
-      const ov = { ...((state && state.ov) || {}) };
+      const state = cachedOv ? { ov: cachedOv } : await freshState();
+      const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
-      ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) {
-        lastWriteTs = Math.max(lastWriteTs, res.ts);
-        cachedOv = ov;
-      }
+      const next = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
+      await this.saveJob("_paymentVisionLearning", next);
       return { ok: true };
     },
 
