@@ -354,7 +354,14 @@ export function StoreProvider({ children }) {
   useEffect(() => {
     refresh(false);
     refreshEvents({ pull: true, awaitPull: false });
-    const t1 = setInterval(() => refreshJobs(true), 60_000);
+    const replayOffline = () => {
+      if (typeof api.flushSavedPatches === "function") api.flushSavedPatches().catch(() => {});
+    };
+    replayOffline();
+    const t1 = setInterval(() => {
+      refreshJobs(true);
+      replayOffline();
+    }, 60_000);
     const t2 = setInterval(refreshCommands, 8_000);
     const t3 = setInterval(refreshDev, 30_000);
     const t4 = setInterval(() => refreshEvents({ pull: false }), 30_000);
@@ -364,6 +371,7 @@ export function StoreProvider({ children }) {
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
+        replayOffline();
         refreshEvents({ pull: false });
         refreshEvents({ pull: true, awaitPull: false });
         refreshCommands();
@@ -371,10 +379,13 @@ export function StoreProvider({ children }) {
         refreshEmailInsights();
       }
     };
+    const onOnline = () => replayOffline();
     document.addEventListener("visibilitychange", vis);
+    window.addEventListener("online", onOnline);
     return () => {
       [t1, t2, t3, t4, t5, t6, t7].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
+      window.removeEventListener("online", onOnline);
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights]);
 

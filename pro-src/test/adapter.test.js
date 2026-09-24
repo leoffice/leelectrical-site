@@ -254,14 +254,12 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(stateCalls[0].body.ov).toBeUndefined();
   });
 
-  it("saveJob falls back to legacy fetch-latest -> merge -> full-ov POST when the server does not ack the PATCH", async () => {
+  it("saveJob fallback POSTs only the changed key when PATCH is not acked", async () => {
     const serverOv = {
       "JP-001": { notes: "existing note", status: { Lead: { s: "done" } } },
-      "JP-777": { paid: true }, // other job's edits must survive the POST
+      "JP-777": { paid: true },
     };
     const calls = stubFetch({
-      // Old server: PATCH falls through to the read branch (returns { ov, ts },
-      // writes nothing); POST returns { ok, ts } with no `patched` ack.
       state: (call) => (call.method === "POST" ? { ok: true, ts: 99 } : { ov: serverOv, ts: 5 }),
     });
     const api = createNetlifyAdapter();
@@ -269,14 +267,12 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
 
     const post = calls.find((c) => c.method === "POST" && c.body.ov);
     expect(post).toBeTruthy();
-    expect(post.body.ov["JP-777"]).toEqual({ paid: true }); // not clobbered
-    expect(post.body.ov["JP-001"]).toMatchObject({
-      notes: "existing note",
-      status: { Lead: { s: "done" }, Invoiced: { s: "done" } }, // per-stage merge
+    expect(post.body.op).toBe("patch");
+    expect(post.body.ov["JP-777"]).toBeUndefined();
+    expect(post.body.ov["JP-001"]).toEqual({
       paid: true,
+      status: { Invoiced: { s: "done" } },
     });
-    // Every saved job is stamped so the stale-doc reconcile can date it.
-    expect(post.body.ov["JP-001"]._savedAt).toEqual(expect.any(Number));
   });
 
   it("back-to-back saveJobs each send one PATCH; no GET on the save path", async () => {
