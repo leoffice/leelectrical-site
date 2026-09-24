@@ -276,8 +276,8 @@ export default function JobDetail() {
   const setFu = (patch) => patchJob(id, { followUp: patch });
   const autoIdx = PHASES.indexOf(phaseOfStage(cur) || PHASES[4]);
   const openIdx = openPhase !== null ? openPhase : autoIdx;
-  const hist = (job.invoiceHistory || []).slice().reverse();
-  const at = job.attachments || [];
+  const hist = (Array.isArray(job.invoiceHistory) ? job.invoiceHistory : []).slice().reverse();
+  const at = Array.isArray(job.attachments) ? job.attachments : [];
 
   const schedDate = (d) => {
     patchJob(id, { status: { Scheduled: { s: "done", d } } });

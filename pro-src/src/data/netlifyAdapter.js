@@ -7,7 +7,14 @@
 //   devtasks  shared development task list (op:add / op:patch)
 //   chat      floating-bubble conversations (op:msg)
 //   iterate   nudges Dispatch to look at the message
-import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
+import { isPlainObject, mergeJobs } from "./merge.js";
+import {
+  combinePatches,
+  dropOutboxIfGen,
+  flushSavedPatches as replayOutbox,
+  peekQueued,
+  queueSavedPatch,
+} from "./ovOutbox.js";
 import { functionsBase } from "../lib/functionsBase.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { downloadPdfBlob } from "../lib/pdfOpen.js";
@@ -63,6 +70,34 @@ function blobToBase64(blob) {
   });
 }
 
+function num(v) {
+  if (v == null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function stampOn(ov, id) {
+  const v = ov && ov[id];
+  const fromVal = isPlainObject(v) ? { _savedAt: num(v._savedAt), _version: num(v._version) } : {};
+  const map = ov && isPlainObject(ov._ovStamp) ? ov._ovStamp[id] : null;
+  const fromMap = isPlainObject(map) ? { _savedAt: num(map._savedAt), _version: num(map._version) } : {};
+  return newerStamp(fromVal, fromMap);
+}
+
+function newerStamp(a, b) {
+  const as = num(a && a._savedAt);
+  const bs = num(b && b._savedAt);
+  const av = num(a && a._version);
+  const bv = num(b && b._version);
+  const savedAt = as == null ? bs : bs == null ? as : Math.max(as, bs);
+  const version = av == null ? bv : bv == null ? av : Math.max(av, bv);
+  if (savedAt == null && version == null) return null;
+  const out = {};
+  if (savedAt != null) out._savedAt = savedAt;
+  if (version != null) out._version = version;
+  return out;
+}
+
 export function createNetlifyAdapter() {
   // saveJob is fetch-latest -> merge -> post; two CONCURRENT saves could
   // clobber each other's keys (e.g. convert-to-job writes the new job and
@@ -72,6 +107,9 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
+  // Stamps from our own successful writes. A lagging GET must not make the
+  // next save look older than the version we just stored.
+  const stampMem = new Map();
   const freshState = async () => {
     for (let i = 0; ; i++) {
       const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
@@ -124,21 +162,53 @@ export function createNetlifyAdapter() {
       return last;
     },
 
-    /** Deep-merge `patch` into ov[id], then POST the full { ov } back.
-     *  Fetch-latest -> merge -> post keeps the clobber window minimal
-     *  (the store itself is last-write-wins). */
+    /** POST only this key. The server deep-merges it into the live ov and
+     *  refuses the write when `base` is an older `_savedAt` / `_version`.
+     *  A network failure queues the patch for replay; a stale_write does not. */
     async saveJob(id, patch) {
       const run = async () => {
-        const state = await freshState();
-        const ov = (state && state.ov) || {};
-        ov[id] = deepMerge(ov[id] || {}, patch || {});
-        const res = await http("state", { ov });
-        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
-        return { ok: true, ts: res && res.ts, ov: ov[id] };
+        const queued = peekQueued(id);
+        const startGen = queued ? queued.gen : 0;
+        const combined = queued ? combinePatches(queued.patch, patch) : patch;
+        const stale = () => {
+          const err = new Error("stale_write");
+          err.code = "stale_write";
+          return err;
+        };
+        try {
+          const state = await freshState();
+          const ov = (state && state.ov) || {};
+          const baseStamp = newerStamp(stampOn(ov, id), stampMem.get(id));
+          const body = { op: "patch", ov: { [id]: combined } };
+          if (baseStamp) body.base = { [id]: baseStamp };
+          const res = await http("state", body);
+          const skipped = Array.isArray(res && res.skipped) ? res.skipped : [];
+          if (skipped.some((s) => s && s.key === id)) {
+            dropOutboxIfGen(id, startGen);
+            throw stale();
+          }
+          if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+          if (res && res.stamps) {
+            for (const [k, v] of Object.entries(res.stamps)) {
+              if (v && (v._savedAt != null || v._version != null)) stampMem.set(k, v);
+            }
+          }
+          dropOutboxIfGen(id, startGen);
+          return { ok: true, ts: res && res.ts, skipped };
+        } catch (e) {
+          if (e && (e.code === "stale_write" || e.message === "stale_write")) throw e;
+          queueSavedPatch(id, patch);
+          throw e;
+        }
       };
       const p = saveQ.then(run, run);
       saveQ = p.catch(() => {}); // one failure must not wedge the queue
       return p;
+    },
+
+    /** Replay patches that failed while offline. Never posts the full ov. */
+    async flushSavedPatches() {
+      return replayOutbox((id, patch) => this.saveJob(id, patch));
     },
 
     async listCommands(jobId) {
@@ -273,7 +343,9 @@ export function createNetlifyAdapter() {
     async getSasTickets() {
       const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
-      return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
+      if (!isPlainObject(ov._sasTickets)) return {};
+      const { _savedAt, _version, ...rest } = ov._sasTickets;
+      return rest;
     },
 
     /** Mark one ticket handled/dismissed (deep-merged, same path as saveJob). */
@@ -310,9 +382,8 @@ export function createNetlifyAdapter() {
       const state = await freshState();
       const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
-      ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      const next = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
+      await this.saveJob("_invoiceEditLearning", next);
       return { ok: true };
     },
 

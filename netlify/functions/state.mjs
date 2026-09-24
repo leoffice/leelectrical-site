@@ -1,9 +1,11 @@
 import { getStore } from "@netlify/blobs";
-import { rotateJsonBackup } from "./blob-backup.mjs";
+import { saveJobState } from "./lib/ovMerge.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
-// notes, paid flags, paperwork). GET returns the shared state; POST saves it.
+// notes, paid flags, paperwork). GET returns the shared state; POST merges it.
 // Single shared business state — every signed-in device reads/writes the same blob.
+// POST never replaces the whole ov: missing keys stay, and an older per-key
+// stamp cannot overwrite a newer one. See lib/ovMerge.mjs.
 const KEY = "ov-v1";
 
 function json(o) {
@@ -24,10 +26,8 @@ export default async (req) => {
   if (req.method === "POST") {
     let body = {};
     try { body = await req.json(); } catch (e) {}
-    const ov = body.ov || {};
-    const ts = Date.now();
-    await rotateJsonBackup(store, KEY, { ov, ts });
-    return json({ ok: true, ts });
+    const result = await saveJobState(store, body, Date.now(), KEY);
+    return json(result);
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
   return json(cur);
