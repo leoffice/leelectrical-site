@@ -13,6 +13,7 @@
 // Merge semantics MUST match sleek's merge2(): objects merge recursively,
 // arrays and scalars are REPLACED by the patch (the overlay stores the full
 // attachments / invoiceHistory list, not deltas).
+import { STAGES } from "../lib/stages.js";
 
 export function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -46,30 +47,60 @@ function clone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
+const VIEW_STRINGS = [
+  "customer",
+  "businessName",
+  "personName",
+  "title",
+  "amount",
+  "phone",
+  "email",
+  "address",
+  "serviceAddress",
+  "billingAddress",
+  "apartment",
+  "estimateNo",
+  "invoiceNo",
+  "notes",
+  "description",
+  "calEventId",
+  "qboCustomerId",
+  "_sasCallId",
+  "_sasRecordingUrl",
+];
+
+/** View-only defaults so a partial job can open. Null/undefined only —
+ *  present amounts and payments stay. Do not write this back into ov. */
+export function normalizeJob(job) {
+  if (!isPlainObject(job)) return job;
+  const out = { ...job };
+  for (const k of VIEW_STRINGS) {
+    if (out[k] == null) out[k] = "";
+  }
+  if (out.paid == null) out.paid = false;
+  if (!Array.isArray(out.attachments)) out.attachments = [];
+  if (!Array.isArray(out.invoiceHistory)) out.invoiceHistory = [];
+  if (typeof out.followUp === "string") out.followUp = { text: out.followUp, date: "" };
+  else if (!isPlainObject(out.followUp)) out.followUp = { text: "", date: "" };
+  else {
+    out.followUp = {
+      ...out.followUp,
+      text: out.followUp.text == null ? "" : out.followUp.text,
+      date: out.followUp.date == null ? "" : out.followUp.date,
+    };
+  }
+  const hadStatus = isPlainObject(out.status);
+  const status = hadStatus ? { ...out.status } : {};
+  for (const s of STAGES) {
+    status[s] = isPlainObject(status[s]) ? { ...status[s] } : { s: "" };
+  }
+  if (!hadStatus) status.Lead = { s: "current" };
+  out.status = status;
+  return out;
+}
+
 export function blankJob(id) {
-  return {
-    id,
-    customer: "",
-    businessName: "",
-    personName: "",
-    title: "",
-    amount: "",
-    phone: "",
-    email: "",
-    address: "",
-    serviceAddress: "",
-    billingAddress: "",
-    apartment: "",
-    estimateNo: "",
-    invoiceNo: "",
-    paid: false,
-    notes: "",
-    attachments: [],
-    invoiceHistory: [],
-    followUp: null,
-    calEventId: "",
-    status: { Lead: { s: "current" } },
-  };
+  return normalizeJob({ id, _new: true });
 }
 
 /** Apply one overlay entry to one base job — sleek's merge2 semantics:
@@ -216,7 +247,7 @@ export function mergeJobs(baseJobs, ov) {
       merged._archived = false;
       if (merged.deletedAt) merged.deletedAt = "";
     }
-    out.push(merged);
+    out.push(normalizeJob(merged));
   }
   for (const id of Object.keys(overlay)) {
     // Reserved namespace: "_"-prefixed ov keys (e.g. _sasTickets) are app
@@ -230,7 +261,8 @@ export function mergeJobs(baseJobs, ov) {
     // Money / invoices also surface without _new (deleted-then-paid race).
     const isLocalId = String(id).startsWith("local-");
     const keepMoney = isMoneyOrInvoiceKeepVisible(o);
-    if (!o._new && !isLocalId && !keepMoney) continue;
+    const hasAddress = String(o.address || o.serviceAddress || "").trim().length > 0;
+    if (!o._new && !isLocalId && !keepMoney && !hasAddress) continue;
     if (!o._new && isLocalId && !keepMoney) {
       const hasSignal =
         o.customer ||
@@ -238,13 +270,14 @@ export function mergeJobs(baseJobs, ov) {
         o.qboCustomerId ||
         o.title ||
         o.invoiceNo ||
-        o.estimateNo;
+        o.estimateNo ||
+        String(o.address || o.serviceAddress || "").trim();
       if (!hasSignal) continue;
     }
-    const j = applyOverlay(blankJob(id), o);
+    const j = normalizeJob(applyOverlay(blankJob(id), o));
     j.id = id;
     // Recover visibility flag so later thin patches don't drop the row again.
-    if (isLocalId && !j._new) j._new = true;
+    if ((isLocalId || hasAddress) && !j._new) j._new = true;
     if ((o._deleted || j._deleted) && keepMoney) {
       j._deleted = false;
       j._archived = false;

@@ -115,12 +115,12 @@ describe("state overlay (customer/job/invoice edits) — per-tenant isolation", 
     const b = await readOv("tokB");
 
     // A sees only A's edit.
-    expect(Object.keys(a.ov)).toEqual(["job-A1"]);
+    expect(Object.keys(a.ov).filter((k) => k !== "_ovStamp")).toEqual(["job-A1"]);
     expect(a.ov["job-A1"].invoiceNo).toBe("A-100");
     expect(a.ov["job-B1"]).toBeUndefined();
 
     // B sees only B's edit — no leakage in EITHER direction.
-    expect(Object.keys(b.ov)).toEqual(["job-B1"]);
+    expect(Object.keys(b.ov).filter((k) => k !== "_ovStamp")).toEqual(["job-B1"]);
     expect(b.ov["job-B1"].invoiceNo).toBe("B-200");
     expect(b.ov["job-A1"]).toBeUndefined();
   });
@@ -167,7 +167,7 @@ describe("state overlay (customer/job/invoice edits) — per-tenant isolation", 
     await saveOv("tokB", { "job-B1": { customer: "Beta B" } });
 
     const anon = await readOv(undefined); // tokenless → le
-    expect(Object.keys(anon.ov)).toEqual(["job-A1"]);
+    expect(Object.keys(anon.ov).filter((k) => k !== "_ovStamp")).toEqual(["job-A1"]);
     expect(anon.ov["job-B1"]).toBeUndefined();
   });
 
