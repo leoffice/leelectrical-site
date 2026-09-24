@@ -8,6 +8,7 @@ import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
 import { TenantProvider } from "../src/state/tenant.jsx";
 import { deepMerge as ovDeepMerge } from "../src/data/merge.js";
+import { mergeIncomingOv } from "../../netlify/functions/lib/ovMerge.mjs";
 import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
 import { setQuickbooksDocsFeatureEnabled } from "../src/lib/appSettings.js";
 
@@ -254,9 +255,12 @@ export function mockServer(opts = {}) {
           state.stateTs = Date.now();
           data = { ok: true, ts: state.stateTs, patched: id };
         } else if (method === "POST") {
-          state.ov = body.ov;
-          state.stateTs = Date.now();
-          data = { ok: true, ts: state.stateTs };
+          const merged = mergeIncomingOv(state.ov, body || {}, Date.now());
+          if (merged.changed) {
+            state.ov = merged.ov;
+            state.stateTs = Date.now();
+          }
+          data = { ok: true, ts: state.stateTs, skipped: merged.skipped, stamps: merged.stamps };
         } else data = { ov: state.ov, ts: state.stateTs };
       } else if (path === "command") {
         if (method === "POST") {
