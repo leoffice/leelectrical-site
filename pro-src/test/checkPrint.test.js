@@ -38,10 +38,10 @@ describe("E-13B MICR", () => {
     expect(BODY_HEIGHT).toBe(91);
   });
   it("builds the standard commercial MICR string (on-us/transit/account)", () => {
-    expect(micrLine("021000021", "606031220", "1001")).toBe("O1001O T021000021T 606031220O");
+    expect(micrLine("011000015", "123456789", "1001")).toBe("O1001O T011000015T 123456789O");
   });
   it("MICR strips non-digits so saved accounts with dashes/spaces still print", () => {
-    expect(micrLine("021-000021", "606 031 220", "1,001")).toBe("O1001O T021000021T 606031220O");
+    expect(micrLine("011-000015", "123 456 789", "1,001")).toBe("O1001O T011000015T 123456789O");
   });
 });
 
@@ -107,13 +107,14 @@ describe("buildCheckPdf", () => {
     expect(text.includes("FontFile2")).toBe(true); // real font program embedded
     expect(text.includes("GnuMICR")).toBe(true);
     expect(text.includes("/F3 ")).toBe(true); // MICR line drawn in the MICR font
-    // MICR string mapped to the font's symbol keys (A=transit, B=on-us):
-    expect(text).toContain("(B1001B A021000021A 606031220B)");
+    // Empty baked-in account/routing: MICR is check number only (A=transit, B=on-us).
+    expect(text).toContain("(B1001B AA B)");
   });
 
-  it("uses BLZ's own account details with the current address", () => {
-    expect(BLZ_CHECK.routing).toBe("021000021");
-    expect(BLZ_CHECK.account).toBe("606031220");
+  it("keeps letterhead defaults and leaves account numbers blank", () => {
+    expect(BLZ_CHECK.routing).toBe("");
+    expect(BLZ_CHECK.account).toBe("");
+    expect(BLZ_CHECK.fractional).toBe("");
     expect(BLZ_CHECK.addr1).toBe("1243 E 15th Street");
     expect(BLZ_CHECK.addr2).toBe("Brooklyn, NY 11230");
   });
@@ -127,7 +128,7 @@ describe("buildCheckPdf — multi-account (config override)", () => {
     phone: "(555) 000-0000",
     bank: "Wells Fargo Bank, N.A.",
     account: "123456789",
-    routing: "021000021",
+    routing: "011000015",
     fractional: "2-34/567",
     startCheckNo: "500",
   };
@@ -143,7 +144,7 @@ describe("buildCheckPdf — multi-account (config override)", () => {
 
   it("uses the account's starting check number when none is given", () => {
     // MICR check-number field is On-Us[ 500 ]On-Us via micrLine
-    expect(micrLine(acct.routing, acct.account, "500")).toBe("O500O T021000021T 123456789O");
+    expect(micrLine(acct.routing, acct.account, "500")).toBe("O500O T011000015T 123456789O");
   });
 
   it("MICR renders a DIFFERENT routing + longer account correctly in the E-13B font", () => {
@@ -164,8 +165,8 @@ describe("buildCheckPdf — multi-account (config override)", () => {
     expect(pdf).toContain("(B7005B A026009593A 4411782299001B)");
     expect(pdf).toContain("Third Venture LLC");
     expect(pdf).toContain("Bank of America, N.A.");
-    expect(pdf).not.toContain("021000021");
-    expect(pdf).not.toContain("606031220");
+    expect(pdf).not.toContain("A011000015A");
+    expect(pdf).not.toContain("123456789");
   });
 
   it("MICR with a shorter account number keeps every digit and both on-us symbols", () => {
@@ -177,20 +178,19 @@ describe("buildCheckPdf — multi-account (config override)", () => {
 });
 
 describe("isValidAbaRouting", () => {
-  it("accepts real routing numbers (Chase NY, BofA, Fed)", () => {
-    expect(isValidAbaRouting("021000021")).toBe(true); // JPMorgan Chase NY
+  it("accepts real routing numbers (BofA, Fed)", () => {
     expect(isValidAbaRouting("026009593")).toBe(true); // Bank of America
     expect(isValidAbaRouting("011000015")).toBe(true); // Federal Reserve Boston
   });
   it("rejects checksum failures and wrong lengths", () => {
     expect(isValidAbaRouting("123456789")).toBe(false); // fails mod-10
-    expect(isValidAbaRouting("021000022")).toBe(false); // one-digit typo
-    expect(isValidAbaRouting("02100002")).toBe(false); // 8 digits
-    expect(isValidAbaRouting("0210000211")).toBe(false); // 10 digits
+    expect(isValidAbaRouting("011000016")).toBe(false); // one-digit typo
+    expect(isValidAbaRouting("01100001")).toBe(false); // 8 digits
+    expect(isValidAbaRouting("0110000151")).toBe(false); // 10 digits
     expect(isValidAbaRouting("")).toBe(false);
     expect(isValidAbaRouting(null)).toBe(false);
   });
   it("strips separators before judging", () => {
-    expect(isValidAbaRouting("021-000-021")).toBe(true);
+    expect(isValidAbaRouting("011-000-015")).toBe(true);
   });
 });

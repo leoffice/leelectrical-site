@@ -1328,10 +1328,10 @@ export default function Settings() {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <Fld label="Checking account #">
-                          <input className={inputCls} inputMode="numeric" value={acctDraft.account} placeholder="606031220" onChange={(e) => setAcctDraft((d) => ({ ...d, account: e.target.value.replace(/\D/g, "") }))} />
+                          <input className={inputCls} inputMode="numeric" value={acctDraft.account} placeholder="Account number" onChange={(e) => setAcctDraft((d) => ({ ...d, account: e.target.value.replace(/\D/g, "") }))} />
                         </Fld>
                         <Fld label="Routing (ABA) #">
-                          <input className={inputCls} inputMode="numeric" value={acctDraft.routing} placeholder="021000021" onChange={(e) => setAcctDraft((d) => ({ ...d, routing: e.target.value.replace(/\D/g, "") }))} />
+                          <input className={inputCls} inputMode="numeric" value={acctDraft.routing} placeholder="9-digit ABA" onChange={(e) => setAcctDraft((d) => ({ ...d, routing: e.target.value.replace(/\D/g, "") }))} />
                           {String(acctDraft.routing).length === 9 && !isValidAbaRouting(acctDraft.routing) ? (
                             <div className="text-[11px] font-bold text-rose-600 mt-1" data-testid="check-routing-warning">
                               ⚠ Fails the ABA checksum — double-check against a real check from this account
@@ -1344,7 +1344,7 @@ export default function Settings() {
                           <input className={inputCls} inputMode="numeric" value={acctDraft.startCheckNo} placeholder="1001" onChange={(e) => setAcctDraft((d) => ({ ...d, startCheckNo: e.target.value }))} />
                         </Fld>
                         <Fld label="Routing fraction (optional)">
-                          <input className={inputCls} value={acctDraft.fractional} placeholder="1-12/210" onChange={(e) => setAcctDraft((d) => ({ ...d, fractional: e.target.value }))} />
+                          <input className={inputCls} value={acctDraft.fractional} placeholder="optional" onChange={(e) => setAcctDraft((d) => ({ ...d, fractional: e.target.value }))} />
                         </Fld>
                       </div>
                       <div className="flex items-center gap-2 mt-1">

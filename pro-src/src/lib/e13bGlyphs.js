@@ -112,7 +112,7 @@ export const GLYPHS = {
 /**
  * Standard commercial-check MICR line:
  *   On-Us[ checkNo ]On-Us   Transit[ routing ]Transit   account On-Us
- * @returns {string} e.g. "O1001O T021000021T 606031220O"
+ * @returns {string} e.g. "O1001O T011000015T 123456789O"
  */
 /** Digits only for MICR (routing/account/check #). Strips spaces, dashes, etc. */
 export function micrDigits(raw) {
@@ -122,7 +122,7 @@ export function micrDigits(raw) {
 /**
  * Standard commercial On-Us MICR: ⑆check#⑆  ⑆routing(9)⑆  account ⑆
  * Always digit-only fields so E-13B glyphs render for any saved account format
- * (e.g. routing "021-000021" or account with spaces).
+ * (e.g. routing "011-000015" or account with spaces).
  */
 export function micrLine(routing, account, checkNo) {
   const rt = micrDigits(routing).slice(0, 9);

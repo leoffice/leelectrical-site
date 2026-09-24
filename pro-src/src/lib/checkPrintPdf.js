@@ -26,16 +26,17 @@ const GREY = [0.42, 0.42, 0.46];
 const FAINT = [0.62, 0.62, 0.66];
 const BLACK = [0, 0, 0];
 
-// BLZ's own account (prints on every check they issue — not secret).
+// Letterhead defaults only. Checking account and ABA routing are not defaults:
+// the selected Settings account supplies them at print time.
 export const BLZ_CHECK = {
   name: "BLZ Electric Inc.",
   addr1: "1243 E 15th Street",
   addr2: "Brooklyn, NY 11230",
   phone: "(718) 594-1850",
   bank: "JPMorgan Chase Bank, N.A.",
-  routing: "021000021",
-  account: "606031220",
-  fractional: "1-12/210",
+  routing: "",
+  account: "",
+  fractional: "",
   startCheckNo: 1001,
 };
 
