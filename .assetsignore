@@ -1,0 +1,7 @@
+# Static-asset exclusions for Cloudflare Pages.
+# Wrangler still bundles Pages Functions from this directory. These paths must
+# not be published as downloadable files.
+/netlify/functions/
+/scripts/
+/wrangler.toml
+*.md

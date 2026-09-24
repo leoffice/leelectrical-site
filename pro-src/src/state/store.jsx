@@ -15,7 +15,7 @@ import React, {
 // Dual context: typing only invalidates EditCtx. Shell watchers that only need
 // jobs/events/commands subscribe via useStoreData and stay idle while you type.
 import api from "../data/adapter.js";
-import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard } from "../data/merge.js";
+import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard, normalizeJob } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { calendarServiceLocation } from "../lib/customerSync.js";
 import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
@@ -532,7 +532,7 @@ export function StoreProvider({ children }) {
     if (!ov) return base;
     const hit = effJobRowCache.current.get(key);
     if (hit && hit.base === base && hit.ov === ov) return hit.row;
-    const row = applyOverlay(base, ov);
+    const row = normalizeJob(applyOverlay(base, ov));
     effJobRowCache.current.set(key, { base, ov, row });
     return row;
   }, [jobsById]);

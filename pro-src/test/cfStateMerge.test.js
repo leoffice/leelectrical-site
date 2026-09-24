@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { mergeIncomingOv, saveJobState, stateWriteBody } from "../../netlify/functions/lib/ovMerge.mjs";
 import { createMemoryStore } from "../src/lib/backup.js";
+import { mergeJobs, normalizeJob } from "../src/data/merge.js";
+import { stageOf } from "../src/lib/stages.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -93,5 +95,27 @@ describe("state write merge", () => {
     expect(stale.ov["JP-KEEP"]._deleted).toBe(true);
     expect(stale.ov["JP-KEEP"].customer).toBe("Keep me");
     expect(stale.skipped.some((s) => s.key === "JP-KEEP")).toBe(true);
+  });
+
+  it("an address-only local job opens and a non-array invoiceHistory does not throw", () => {
+    const sparse = { id: "local-1790228127169", customer: "Hand entered", address: "9 Bond St" };
+    expect(() => stageOf(sparse)).not.toThrow();
+    const bad = { invoiceHistory: { bad: true } };
+    expect(() => (bad.invoiceHistory || []).slice()).toThrow(TypeError);
+    const jobs = mergeJobs([], {
+      "local-1790228127169": { customer: "Hand entered", address: "9 Bond St", invoiceHistory: { bad: true }, amount: "$42" },
+      "GHOST-1": { customer: "Not new, not base" },
+    });
+    const job = jobs.find((j) => j.id === "local-1790228127169");
+    expect(job).toBeTruthy();
+    expect(job._new).toBe(true);
+    expect(job.amount).toBe("$42");
+    expect(job.followUp).toEqual({ text: "", date: "" });
+    expect(Array.isArray(job.invoiceHistory)).toBe(true);
+    expect(() => job.invoiceHistory.slice()).not.toThrow();
+    expect(jobs.find((j) => j.id === "GHOST-1")).toBeUndefined();
+    const kept = normalizeJob({ id: "J", amount: "$5", payments: [{ amount: 5 }] });
+    expect(kept.amount).toBe("$5");
+    expect(kept.payments).toEqual([{ amount: 5 }]);
   });
 });
