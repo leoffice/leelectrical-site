@@ -421,7 +421,11 @@ export function hydrateEstimateGeneratorFeesFromCloud(cloudFees) {
  */
 export const CHECKMAKER_ACCOUNTS_KEY = "lepro_checkmaker_accounts";
 
-/** Seed preset: BLZ Electric's own Chase account (prints on every check they issue). */
+/**
+ * Seed preset for the checkmaker form. Account and routing stay empty:
+ * they are entered in Settings (device cache + cloud profile) and must not
+ * be baked into the client bundle.
+ */
 export function defaultCheckmakerAccounts() {
   return [
     {
@@ -432,9 +436,9 @@ export function defaultCheckmakerAccounts() {
       addr2: "Brooklyn, NY 11230",
       phone: "(718) 594-1850",
       bank: "JPMorgan Chase Bank, N.A.",
-      account: "606031220",
-      routing: "021000021",
-      fractional: "1-12/210",
+      account: "",
+      routing: "",
+      fractional: "",
       startCheckNo: "1001",
     },
   ];

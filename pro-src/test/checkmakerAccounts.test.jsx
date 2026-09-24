@@ -26,8 +26,8 @@ describe("checkmaker accounts store", () => {
       addr1: "1243 E 15th Street",
       addr2: "Brooklyn, NY 11230",
       bank: "JPMorgan Chase Bank, N.A.",
-      account: "606031220",
-      routing: "021000021",
+      account: "",
+      routing: "",
     });
   });
 
@@ -48,7 +48,7 @@ describe("checkmaker accounts store", () => {
         phone: "",
         bank: "Wells Fargo Bank, N.A.",
         account: "123456789",
-        routing: "021000021",
+        routing: "011000015",
         fractional: "",
         startCheckNo: "500",
       },
@@ -69,7 +69,7 @@ describe("checkmaker accounts store", () => {
     expect(getCheckmakerAccounts()).toHaveLength(1);
     // non-empty cloud wins
     hydrateCheckmakerAccountsFromCloud([
-      { id: "x", label: "X", name: "X Co", addr1: "", addr2: "", phone: "", bank: "B", account: "999888777", routing: "021000021", fractional: "", startCheckNo: "1" },
+      { id: "x", label: "X", name: "X Co", addr1: "", addr2: "", phone: "", bank: "B", account: "999888777", routing: "011000015", fractional: "", startCheckNo: "1" },
     ]);
     expect(getCheckmakerAccounts()).toHaveLength(1);
     expect(getCheckmakerAccounts()[0].id).toBe("x");
