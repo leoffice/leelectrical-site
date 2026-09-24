@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyOverlay, blankJob, deepMerge, mergeJobs } from "../src/data/merge.js";
 import { createNetlifyAdapter } from "../src/data/netlifyAdapter.js";
+import { clearOutbox, readOutbox } from "../src/data/ovOutbox.js";
 
 const BASE_JOB = {
   id: "JP-001",
@@ -82,6 +83,22 @@ describe("mergeJobs", () => {
     expect(mergeJobs([], { "LOCAL-1": { _new: true } })).toHaveLength(1);
     expect(mergeJobs([], {})).toEqual([]);
   });
+  it("includes local-* and address-only overlay jobs and normalizes partials", () => {
+    const out = mergeJobs([], {
+      "local-1790228127169": { customer: "Direct", address: "9 Bond St", amount: "$80" },
+      "GHOST-1": { customer: "Not new, not base" },
+      "ADDR-1": { customer: "Site", serviceAddress: "8 Oak Ave" },
+    });
+    expect(out.map((j) => j.id).sort()).toEqual(["ADDR-1", "local-1790228127169"]);
+    const local = out.find((j) => j.id === "local-1790228127169");
+    expect(local._new).toBe(true);
+    expect(local.amount).toBe("$80");
+    expect(local.followUp).toEqual({ text: "", date: "" });
+    expect(local.billingAddress).toBe("");
+    expect(local.description).toBe("");
+    expect(local.status.Lead).toEqual({ s: "current" });
+    expect(local.status.Paid).toEqual({ s: "" });
+  });
 });
 
 describe("NetlifyStoreAdapter (mocked fetch)", () => {
@@ -114,25 +131,61 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(meta.jobs.find((j) => j.id === "JP-001").paid).toBe(true);
   });
 
-  it("saveJob fetches latest ov, deep-merges the patch, posts full ov back", async () => {
+  it("saveJob posts only the changed key plus the base stamp", async () => {
     const serverOv = {
-      "JP-001": { notes: "existing note", status: { Lead: { s: "done" } } },
-      "JP-777": { paid: true }, // other job's edits must survive the POST
+      "JP-001": { notes: "existing note", status: { Lead: { s: "done" } }, _savedAt: 10, _version: 2 },
+      "JP-777": { paid: true, _savedAt: 10, _version: 1 },
     };
     const calls = stubFetch({
-      state: (call) => (call.method === "POST" ? { ok: true, ts: 99 } : { ov: serverOv, ts: 5 }),
+      state: (call) => (call.method === "POST" ? { ok: true, ts: 99, skipped: [] } : { ov: serverOv, ts: 5 }),
     });
     const api = createNetlifyAdapter();
     await api.saveJob("JP-001", { paid: true, status: { Invoiced: { s: "done" } } });
 
     const post = calls.find((c) => c.method === "POST");
     expect(post).toBeTruthy();
-    expect(post.body.ov["JP-777"]).toEqual({ paid: true }); // not clobbered
+    expect(post.body.op).toBe("patch");
+    expect(post.body.ov["JP-777"]).toBeUndefined();
     expect(post.body.ov["JP-001"]).toEqual({
-      notes: "existing note",
-      status: { Lead: { s: "done" }, Invoiced: { s: "done" } }, // per-stage merge
       paid: true,
+      status: { Invoiced: { s: "done" } },
     });
+    expect(post.body.base["JP-001"]).toEqual({ _savedAt: 10, _version: 2 });
+  });
+
+  it("a failed save queues that key only and flush replays it", async () => {
+    clearOutbox();
+    const calls = [];
+    let failPost = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, opts = {}) => {
+        const path = String(url).split("/functions/")[1].split("?")[0];
+        const method = opts.method || "GET";
+        const body = opts.body ? JSON.parse(opts.body) : null;
+        calls.push({ path, method, body });
+        if (path === "state" && method === "POST" && failPost) {
+          return { ok: false, status: 503, json: async () => ({ ok: false }) };
+        }
+        if (path === "state" && method === "POST") return { ok: true, status: 200, json: async () => ({ ok: true, ts: 50, skipped: [] }) };
+        return { ok: true, status: 200, json: async () => ({ ov: { "JP-777": { paid: true } }, ts: 1 }) };
+      })
+    );
+    const api = createNetlifyAdapter();
+    await expect(api.saveJob("JP-001", { notes: "kept locally" })).rejects.toThrow(/HTTP 503/);
+    const queued = calls.filter((c) => c.method === "POST");
+    expect(queued).toHaveLength(1);
+    expect(queued[0].body.ov["JP-777"]).toBeUndefined();
+    expect(queued[0].body.ov["JP-001"]).toEqual({ notes: "kept locally" });
+
+    failPost = false;
+    await api.flushSavedPatches();
+    const posts = calls.filter((c) => c.method === "POST");
+    expect(posts).toHaveLength(2);
+    expect(posts[1].body.ov["JP-001"].notes).toBe("kept locally");
+    expect(posts[1].body.ov["JP-777"]).toBeUndefined();
+    expect(readOutbox()["JP-001"]).toBeUndefined();
+    clearOutbox();
   });
 
   it("enqueueCommand posts op:enqueue with the exact idempotencyKey + surfaces dedupe", async () => {

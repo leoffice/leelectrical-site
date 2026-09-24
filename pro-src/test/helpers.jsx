@@ -7,6 +7,7 @@ import { vi } from "vitest";
 import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
 import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
+import { mergeIncomingOv } from "../../netlify/functions/lib/ovMerge.mjs";
 
 export const J1 = {
   id: "J-1",
@@ -222,9 +223,12 @@ export function mockServer(opts = {}) {
         // Mirrors the live fn: POST stamps ts, GET returns { ov, ts } (the
         // adapter/store use ts to detect stale eventually-consistent reads).
         if (method === "POST") {
-          state.ov = body.ov;
-          state.stateTs = Date.now();
-          data = { ok: true, ts: state.stateTs };
+          const merged = mergeIncomingOv(state.ov, body || {}, Date.now());
+          if (merged.changed) {
+            state.ov = merged.ov;
+            state.stateTs = Date.now();
+          }
+          data = { ok: true, ts: state.stateTs, skipped: merged.skipped, stamps: merged.stamps };
         } else data = { ov: state.ov, ts: state.stateTs };
       } else if (path === "command") {
         if (method === "POST") {
