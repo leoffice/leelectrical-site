@@ -2,7 +2,8 @@ import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
 import { resolveTenant } from "./lib/tenant.mjs";
 import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
-import { deepMerge, capAuditLog } from "./lib/ovPatch.mjs";
+import { capAuditLog } from "./lib/ovPatch.mjs";
+import { mergeIncomingOv, stateWriteBody } from "./lib/ovMerge.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
 // notes, paid flags, paperwork). GET returns the state; POST saves it.
@@ -29,40 +30,37 @@ export default async (req) => {
   const tenant = await resolveTenant(req);
   if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
   const store = getStore("jobstate", tenant);
-  // Incremental save (perf Batch B, 2026-08-11): PATCH { id, patch } merges
-  // one job's edits here instead of the client round-tripping the whole blob
-  // (~4.5 MB each way per save). Method PATCH on purpose — an old server
-  // ignores it (plain read), so a new client can never wipe state on an old
-  // deployment; the client falls back to the legacy full-ov POST.
-  if (req.method === "PATCH") {
-    let body = {};
-    try { body = await req.json(); } catch (e) {}
-    if (body.id == null) return json({ ok: false, error: "id required" }, 400);
+  // PATCH { id, patch } and POST { ov } both per-key merge into the live
+  // overlay. A key the payload omits is never deleted. Deletes are tombstones
+  // (_deleted or op:"delete"). An older _savedAt/_version is skipped.
+  // POST used to replace the whole blob — a stale full-ov client wiped jobs.
+  // KV is eventually consistent: two near-simultaneous saves can still lose
+  // one write, the same race that existed before this change.
+  if (req.method === "PATCH" || req.method === "POST") {
+    let raw = {};
+    try { raw = await req.json(); } catch (e) {}
+    const body = stateWriteBody(req.method, raw);
+    if (body && body.error) return json({ ok: false, error: body.error }, 400);
+    const patchedId = req.method === "PATCH" ? String(raw.id) : "";
     const ts = Date.now();
-    const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
-    const ov = cur.ov || {};
-    const id = String(body.id);
-    ov[id] = deepMerge(ov[id] || {}, body.patch || {});
-    if (id.charAt(0) !== "_") ov[id]._savedAt = ts;
-    if (ov._auditLog) ov._auditLog = capAuditLog(ov._auditLog);
-    await rotateJsonBackup(store, KEY, { ov, ts });
-    return json({ ok: true, ts, patched: id });
-  }
-  if (req.method === "POST") {
-    let body = {};
-    try { body = await req.json(); } catch (e) {}
-    const ts = Date.now();
-    const ov = body.ov || {};
-    if (ov._auditLog) {
-      ov._auditLog = capAuditLog(ov._auditLog);
-    } else {
-      // Clients never receive _auditLog anymore (GET strips it) — a legacy
-      // full-ov POST echoing that view back must not erase the stored log.
-      const cur = (await store.get(KEY, { type: "json" })) || { ov: {} };
-      if (cur.ov && cur.ov._auditLog) ov._auditLog = cur.ov._auditLog;
+    const cur = (await store.get(KEY, { type: "json", consistency: "strong" })) || { ov: {}, ts: 0 };
+    const merged = mergeIncomingOv(cur.ov || {}, body, ts);
+    if (merged.ov && merged.ov._auditLog) {
+      const capped = capAuditLog(merged.ov._auditLog);
+      if (capped !== merged.ov._auditLog) {
+        merged.ov._auditLog = capped;
+        merged.changed = true;
+      }
     }
-    await rotateJsonBackup(store, KEY, { ov, ts });
-    return json({ ok: true, ts });
+    if (!merged.changed) {
+      const idle = { ok: true, ts: cur.ts || 0, skipped: merged.skipped, unchanged: true, stamps: {} };
+      if (patchedId) idle.patched = patchedId;
+      return json(idle);
+    }
+    await rotateJsonBackup(store, KEY, { ov: merged.ov, ts });
+    const out = { ok: true, ts, skipped: merged.skipped, stamps: merged.stamps };
+    if (patchedId) out.patched = patchedId;
+    return json(out);
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
   // _auditLog is WRITE-ONLY from the app (grep-verified: no client reader) and

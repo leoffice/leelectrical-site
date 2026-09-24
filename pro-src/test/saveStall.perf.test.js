@@ -6,6 +6,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { createNetlifyAdapter } from "../src/data/netlifyAdapter.js";
 import { deepMerge } from "../src/data/merge.js";
+import { mergeIncomingOv } from "../../netlify/functions/lib/ovMerge.mjs";
 
 /** Fetch stub modelling the state fn. `legacy: true` = OLD server (no PATCH
  *  handler — PATCH falls through to a plain read and writes NOTHING).
@@ -32,9 +33,12 @@ function stubStore({ legacy = false } = {}) {
           return { ok: true, status: 200, json: async () => ({ ok: true, ts: store.ts, patched: id }) };
         }
         if (method === "POST") {
-          store.ov = body.ov;
-          store.ts = Date.now();
-          return { ok: true, status: 200, json: async () => ({ ok: true, ts: store.ts }) };
+          const merged = mergeIncomingOv(store.ov, body || {}, Date.now());
+          if (merged.changed) {
+            store.ov = merged.ov;
+            store.ts = Date.now();
+          }
+          return { ok: true, status: 200, json: async () => ({ ok: true, ts: store.ts, skipped: merged.skipped }) };
         }
         const snap = JSON.parse(JSON.stringify(store.ov));
         if (store.staleReads > 0) {
@@ -74,17 +78,17 @@ test("another device's concurrent key survives our save (server merges one id)",
   expect(store.ov["J-A"].notes).toBe("A2");
 });
 
-test("LEGACY fallback (old server): stale read does not stall; lost key restored from session cache", async () => {
+test("PATCH miss falls back to a one-key POST that does not delete other keys", async () => {
   const store = stubStore({ legacy: true });
   const api = createNetlifyAdapter();
-  await api.saveJob("J-A", { notes: "A" }); // PATCH no-ops on old server -> legacy POST ran
+  await api.saveJob("J-A", { notes: "A" });
   expect(store.ov["J-A"].notes).toBe("A");
-  store.ov = {}; // lagging blob dropped our just-written key
-  store.staleReads = 2; // both the PATCH read-through and the freshState GET lag
+  store.ov["J-OTHER"] = { notes: "keep" };
   const t0 = performance.now();
   await api.saveJob("J-B", { notes: "B" });
   const elapsed = performance.now() - t0;
-  expect(elapsed).toBeLessThan(400); // one short 120ms retry max, no 2.1s sleep
-  expect(store.ov["J-A"] && store.ov["J-A"].notes).toBe("A"); // restored from cachedOv
+  expect(elapsed).toBeLessThan(400);
+  expect(store.ov["J-A"].notes).toBe("A");
+  expect(store.ov["J-OTHER"].notes).toBe("keep");
   expect(store.ov["J-B"].notes).toBe("B");
 });

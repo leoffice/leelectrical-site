@@ -235,10 +235,10 @@ export default function CustomerDocTabs({
     addresses: addresses.length,
   };
 
-  const openJob = (j) => {
+  const openJob = (j, { fold = "1" } = {}) => {
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
-    parts.push("fold=1");
+    if (fold != null && fold !== false) parts.push("fold=" + fold);
     const q = parts.length ? "?" + parts.join("&") : "";
     nav("/job/" + j.id + q);
   };
@@ -498,7 +498,11 @@ export default function CustomerDocTabs({
               >
                 ＋ Add job at this address
               </button>
-              <AddressJobRows list={addrJobs} activeJobId={activeJobId} onOpen={openJob} />
+              <AddressJobRows
+                list={addrJobs}
+                activeJobId={activeJobId}
+                onOpen={(j) => openJob(j, { fold: "0" })}
+              />
               {!addrJobs.length ? <p className="text-xs text-slate-400 text-center py-2">No jobs yet.</p> : null}
             </>
           )}
