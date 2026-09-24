@@ -45,7 +45,7 @@ describe("invoice agent draft — e2e flow", () => {
     await waitFor(() => expect(screen.queryByTestId("invoice-review-banner")).not.toBeInTheDocument());
     expect(screen.getByTestId("tab-invoice")).not.toHaveClass("animate-pulse");
 
-    const statePosts = srv.posts("state", () => true);
+    const statePosts = srv.stateWrites(() => true);
     const learningPost = statePosts.find((p) => {
       const ov = p.body?.ov || {};
       return Array.isArray(ov._invoiceEditLearning) && ov._invoiceEditLearning.length > 0;
