@@ -25,3 +25,16 @@ script_name = "le-agent-access-do"
 [[services]]
 binding = "AGENT_ACCESS_SVC"
 service = "le-agent-access-do"
+
+# PREVIEW deployments only (any branch other than the production branch).
+# Isolated: a separate KV namespace seeded with synthetic test jobs, no R2 and
+# no Durable Object, so a preview can never read or write live LE Pro data.
+# Production keeps the top-level bindings above unchanged.
+[env.preview]
+[env.preview.vars]
+STORAGE_BACKEND = "cloudflare"
+COACH_MIN_JOB_KEYS = "3"
+
+[[env.preview.kv_namespaces]]
+binding = "LE_KV"
+id = "1ad52172ad9040b0bdfb0e5c89dc2d30"
