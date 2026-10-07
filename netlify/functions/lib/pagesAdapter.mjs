@@ -1,4 +1,5 @@
 import { bindStorageEnv } from "./storage/index.mjs";
+import { isCoachRequest } from "./coachLePro.mjs";
 
 /**
  * Cloudflare Pages secrets/bindings land on `context.env`. Ported Netlify
@@ -24,6 +25,14 @@ export function bindProcessEnv(env) {
  */
 export function toPagesFunction(handler) {
   return async function onRequest(context) {
+    // The Coach credential is only valid on /api/coach/*. Refuse it on every
+    // other endpoint (payments, Zelle apply, sends, deletes, full-ov state).
+    if (await isCoachRequest(context.request, context.env)) {
+      return new Response(JSON.stringify({ ok: false, error: "coach_forbidden" }), {
+        status: 403,
+        headers: { "content-type": "application/json", "cache-control": "no-store" },
+      });
+    }
     bindStorageEnv(context.env);
     bindProcessEnv(context.env);
     return handler(context.request, context.env, context);
