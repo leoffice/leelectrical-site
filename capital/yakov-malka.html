@@ -245,17 +245,28 @@ async function signedPdfBytes() {
     const pngBytes = await (await fetch(cropped.toDataURL("image/png"))).arrayBuffer();
     const img = await pdf.embedPng(pngBytes);
     const page = pdf.getPages()[0];
-    // Customer signature cell is about x 36–294, y 156–180.
-    // The caption fills the left side through ~x 117. The old stamp used a
-    // 10pt strip at y 157.5 starting at x 44, so the signature sat under the
-    // label. Place it in the open part of the cell, centered, same idea as
-    // the contractor signature already on the form.
-    const boxX = 124, boxY = 158.4, boxW = 164, boxH = 19.2;
-    const scale = Math.min(boxW / img.width, boxH / img.height);
-    const w = img.width * scale, h = img.height * scale;
+    // Draw and type both stamp this cropped image.
+    // Customer cell, from the template rules on page 1:
+    //   row rect x 36.25, y 155.75, w 539.5, h 24
+    //   Title divider (the cell's right border) is the vertical rule at x 294.25
+    //   "Signature of customer" occupies about x 39–117.3, along the top of the cell
+    // Right-align in the open area: right edge 6pt inside that border, vertically
+    // centered between the row rules, scaled to fit, clear of the label and the Title column.
+    const cellRight = 294.25;
+    const cellBottom = 155.75;
+    const cellTop = 179.75;
+    const labelRight = 117.26;
+    const inset = 6;
+    const right = cellRight - inset;
+    const leftLimit = labelRight + inset;
+    const maxW = right - leftLimit;
+    const maxH = (cellTop - cellBottom) - 4;
+    const scale = Math.min(maxW / img.width, maxH / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
     page.drawImage(img, {
-      x: boxX + (boxW - w) / 2,
-      y: boxY + (boxH - h) / 2,
+      x: right - w,
+      y: cellBottom + (cellTop - cellBottom - h) / 2,
       width: w,
       height: h
     });
