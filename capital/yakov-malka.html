@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Capital Improvement Form — Yakov Malka</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --brand:#14532d; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; min-height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:28px 16px 22px; text-align:center; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+  header img { height:132px; width:auto; max-width:min(100%,340px); object-fit:contain; }
+  header .name { font-weight:800; font-size:22px; letter-spacing:-.02em; margin-top:6px; }
+  header .sub { color:var(--muted); font-size:14px; margin-top:2px; }
+  main { max-width:32rem; margin:0 auto; padding:22px 16px calc(48px + env(safe-area-inset-bottom)); }
+  h1 { font-size:28px; line-height:1.15; margin:0 0 4px; font-weight:800; }
+  h1 span { color:var(--brand); }
+  .formname { color:var(--muted); margin:0 0 16px; font-size:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 16px; margin:0 0 14px; }
+  .k { font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 4px; }
+  .field { margin:0 0 14px; }
+  .field:last-child { margin-bottom:0; }
+  input[type=text], input[type=email], textarea, select {
+    width:100%; border:0; border-bottom:1px solid var(--line); background:transparent;
+    font:inherit; font-size:16px; color:var(--ink); padding:6px 0 8px;
+  }
+  textarea { min-height:52px; resize:vertical; }
+  input:focus, textarea:focus, select:focus { outline:none; border-bottom-color:var(--brand); }
+  .modes { display:flex; gap:8px; margin:0 0 12px; }
+  .modes button { flex:1; border-radius:12px; padding:10px; font-weight:750; font-size:14px; border:1px solid var(--line); background:#fff; color:#475569; }
+  .modes button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .padwrap { width:100%; height:140px; border:2px dashed #cbd5e1; border-radius:16px; background:#fff; overflow:hidden; }
+  .padwrap canvas { width:100%; height:100%; display:block; touch-action:none; border:0; border-radius:0; }
+  .hint { color:var(--muted); font-size:13px; line-height:1.4; margin:0 0 12px; }
+  button.submit { width:100%; border:0; border-radius:14px; padding:15px 16px; font-size:17px; font-weight:800; color:#fff; background:#94a3b8; }
+  button.submit.ready { background:#166534; }
+  button.view { width:100%; margin:0 0 10px; border:1px solid var(--line); border-radius:14px; padding:13px 16px; font-size:16px; font-weight:800; background:#fff; color:#64748b; }
+  button.view.ready { color:var(--brand); border-color:#86efac; background:#f0fdf4; }
+  label.copy { display:flex; gap:10px; align-items:flex-start; font-size:14px; margin:0 0 14px; }
+  .ok { background:#f0fdf4; border:1px solid #86efac; border-radius:16px; padding:16px; }
+  .sigshow img { height:46px; background:#fff; border:1px dashed #cbd5e1; border-radius:12px; padding:6px; }
+  a.pdf { color:var(--brand); font-weight:800; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <img src="https://www.leelectrical.us/app/pro/le-logo.png" alt="BLZ Electric">
+  <div class="name">BLZ Electric</div>
+  <div class="sub">Brooklyn · leelectrical.us</div>
+</header>
+<main>
+  <h1><span>Capital Improvement Form</span></h1>
+  <p class="formname">New York Form ST-124, Certificate of Capital Improvement</p>
+
+  <section id="form">
+    <div class="card">
+      <div class="field"><div class="k">Project</div><input id="project" type="text" value="Capital improvement"></div>
+      <div class="field"><div class="k">Project name</div><input id="projectName" type="text" value="Kitchen electrical"></div>
+      <div class="field"><div class="k">Description</div><textarea id="work">Permanent installation of electrical circuits and receptacles.</textarea></div>
+      <div class="field"><div class="k">Address</div><input id="addr" type="text" value="682 Montgomery Street, Brooklyn, NY 11213"></div>
+      <div class="field"><div class="k">Owner name</div><input id="owner" type="text" value="Yakov Malka"></div>
+      <div class="field">
+        <div class="k">I am the</div>
+        <select id="role">
+          <option value="owner" selected>Owner of this property</option>
+          <option value="tenant">Tenant of this property</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="k">Signature</div>
+      <p class="hint">Draw with your finger, or type the name. You can change any line above before you submit.</p>
+      <div class="modes">
+        <button type="button" id="modeDraw" class="on">Draw</button>
+        <button type="button" id="modeType">Type</button>
+      </div>
+      <label id="nameWrap" class="hidden" style="display:none">
+        <input id="typed" type="text" placeholder="Type the full name" autocomplete="name">
+      </label>
+      <div class="padwrap"><canvas id="pad" width="640" height="180"></canvas></div>
+    </div>
+
+    <label class="copy"><input id="emailCopy" type="checkbox"> Email me a copy of this Capital Improvement Form</label>
+    <div class="field" id="emailWrap">
+      <div class="k">Email for the copy</div>
+      <input id="email" type="email" value="jhmalka@gmail.com">
+    </div>
+    <button class="view" id="view" type="button" disabled>View certificate</button>
+    <button class="submit" id="send" type="button" disabled>Submit</button>
+  </section>
+
+  <section id="done" class="hidden">
+    <div class="ok">
+      <strong>Submitted.</strong>
+      <p>This form goes back to the estimator for approval. A copy is filed with BLZ Electric under Capital improvements.</p>
+      <p id="mailNote" class="hint"></p>
+      <div class="k">Signature</div>
+      <div class="sigshow"><img id="customerSig" alt="Customer signature"></div>
+      <p class="hint" id="doneFacts"></p>
+      <button class="view ready" id="viewDone" type="button">View the certificate</button>
+    </div>
+  </section>
+</main>
+<script src="./pdf.min.js"></script>
+<script src="./pdf-lib.min.js"></script>
+<script>
+const FOLDER = "1mEA_fVuIiXhxhPaSgNz5XLLE4ACmcN4e";
+const pad = document.getElementById("pad");
+const ctx = pad.getContext("2d");
+const send = document.getElementById("send");
+let mode = "draw", drawing = false, inked = false, lastPdf = null;
+function blank() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, pad.width, pad.height);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, pad.width, pad.height);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(2, 2, pad.width - 4, pad.height - 4);
+  ctx.clip();
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 2.6;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+}
+blank();
+function refresh() {
+  const named = mode === "type" && document.getElementById("typed").value.trim().length > 1;
+  const ready = named || (mode === "draw" && inked);
+  send.disabled = !ready;
+  send.className = ready ? "submit ready" : "submit";
+  const view = document.getElementById("view");
+  view.disabled = !ready;
+  view.className = ready ? "view ready" : "view";
+}
+function pos(e) {
+  const r = pad.getBoundingClientRect();
+  const s = e.touches ? e.touches[0] : e;
+  return { x: ((s.clientX - r.left) / r.width) * pad.width, y: ((s.clientY - r.top) / r.height) * pad.height };
+}
+function start(e) {
+  if (mode !== "draw") return;
+  e.preventDefault();
+  drawing = true;
+  const p = pos(e);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+}
+function move(e) {
+  if (!drawing || mode !== "draw") return;
+  e.preventDefault();
+  inked = true;
+  const p = pos(e);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+  refresh();
+}
+pad.addEventListener("mousedown", start);
+pad.addEventListener("mousemove", move);
+pad.addEventListener("mouseup", () => drawing = false);
+pad.addEventListener("mouseleave", () => drawing = false);
+pad.addEventListener("touchstart", start, { passive: false });
+pad.addEventListener("touchmove", move, { passive: false });
+pad.addEventListener("touchend", () => drawing = false);
+function paintName() {
+  blank();
+  const name = document.getElementById("typed").value.trim();
+  if (!name) { inked = false; refresh(); return; }
+  inked = true;
+  ctx.fillStyle = "#0f172a";
+  ctx.textBaseline = "middle";
+  let size = 64;
+  ctx.font = size + "px 'Great Vibes', cursive";
+  while (size > 28 && ctx.measureText(name).width > pad.width - 40) {
+    size -= 2;
+    ctx.font = size + "px 'Great Vibes', cursive";
+  }
+  ctx.fillText(name, 20, pad.height / 2);
+  refresh();
+}
+function setMode(next) {
+  mode = next;
+  document.getElementById("modeDraw").className = next === "draw" ? "on" : "";
+  document.getElementById("modeType").className = next === "type" ? "on" : "";
+  document.getElementById("nameWrap").style.display = next === "type" ? "block" : "none";
+  if (next === "type") paintName();
+  else { blank(); inked = false; refresh(); }
+}
+document.getElementById("modeDraw").onclick = () => setMode("draw");
+document.getElementById("modeType").onclick = () => setMode("type");
+document.getElementById("typed").addEventListener("input", paintName);
+function cropSignature(source) {
+  const sctx = source.getContext("2d");
+  const width = source.width, height = source.height;
+  const data = sctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = 0, maxY = 0, found = false;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const ink = data[i + 3] > 16 && (data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245);
+      if (!ink) continue;
+      found = true;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (!found) return null;
+  const padPx = 8;
+  minX = Math.max(0, minX - padPx);
+  minY = Math.max(0, minY - padPx);
+  maxX = Math.min(width - 1, maxX + padPx);
+  maxY = Math.min(height - 1, maxY + padPx);
+  const out = document.createElement("canvas");
+  out.width = maxX - minX + 1;
+  out.height = maxY - minY + 1;
+  const octx = out.getContext("2d");
+  octx.drawImage(source, minX, minY, out.width, out.height, 0, 0, out.width, out.height);
+  const imgd = octx.getImageData(0, 0, out.width, out.height);
+  const d = imgd.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240) d[i + 3] = 0;
+  }
+  octx.putImageData(imgd, 0, 0);
+  return out;
+}
+function bytesToB64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+async function signedPdfBytes() {
+  const src = await fetch("./ST-124-Yakov-Malka.pdf").then((r) => r.arrayBuffer());
+  const pdf = await PDFLib.PDFDocument.load(src);
+  const cropped = cropSignature(pad);
+  if (cropped) {
+    const pngBytes = await (await fetch(cropped.toDataURL("image/png"))).arrayBuffer();
+    const img = await pdf.embedPng(pngBytes);
+    const page = pdf.getPages()[0];
+    // Customer signature cell is about x 36–294, y 156–180.
+    // The caption fills the left side through ~x 117. The old stamp used a
+    // 10pt strip at y 157.5 starting at x 44, so the signature sat under the
+    // label. Place it in the open part of the cell, centered, same idea as
+    // the contractor signature already on the form.
+    const boxX = 124, boxY = 158.4, boxW = 164, boxH = 19.2;
+    const scale = Math.min(boxW / img.width, boxH / img.height);
+    const w = img.width * scale, h = img.height * scale;
+    page.drawImage(img, {
+      x: boxX + (boxW - w) / 2,
+      y: boxY + (boxH - h) / 2,
+      width: w,
+      height: h
+    });
+  }
+  const bytes = await pdf.save();
+  lastPdf = bytes;
+  return bytes;
+}
+function closeCert() {
+  const old = document.getElementById("cert-view");
+  if (old) old.remove();
+  document.body.style.overflow = "";
+}
+async function showPdf(bytes) {
+  closeCert();
+  const root = document.createElement("div");
+  root.id = "cert-view";
+  root.style.cssText = "position:fixed;left:0;right:0;top:0;bottom:0;z-index:30;background:#fff";
+  const bar = document.createElement("div");
+  bar.style.cssText = "position:absolute;left:0;right:0;top:0;height:52px;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:800;background:#fff;z-index:2";
+  const title = document.createElement("div");
+  title.textContent = "Certificate";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "Close";
+  close.style.cssText = "border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:6px 10px;font-weight:800";
+  close.onclick = closeCert;
+  const scroller = document.createElement("div");
+  scroller.id = "cert-scroll";
+  scroller.style.cssText = "position:absolute;left:0;right:0;top:52px;bottom:0;overflow-y:scroll;overflow-x:hidden;-webkit-overflow-scrolling:touch;touch-action:pan-y;background:#e2e8f0;padding:8px 8px 28px";
+  scroller.textContent = "Opening the certificate…";
+  bar.appendChild(title);
+  bar.appendChild(close);
+  root.appendChild(bar);
+  root.appendChild(scroller);
+  document.body.appendChild(root);
+  document.body.style.overflow = "hidden";
+  const data = bytes instanceof Uint8Array ? bytes.slice() : new Uint8Array(bytes);
+  try {
+    if (!window.pdfjsLib) throw new Error("viewer missing");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "./pdf.worker.min.js";
+    const pdf = await pdfjsLib.getDocument({ data }).promise;
+    await new Promise((r) => requestAnimationFrame(r));
+    const width = Math.max(280, Math.min(900, (scroller.clientWidth || window.innerWidth) - 8));
+    scroller.textContent = "";
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const pg = await pdf.getPage(n);
+      const base = pg.getViewport({ scale: 1 });
+      const viewport = pg.getViewport({ scale: width / base.width });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.cssText = "width:100%;height:auto;display:block;background:#fff;margin:0 0 8px;border:0;border-radius:0;touch-action:pan-y";
+      scroller.appendChild(canvas);
+      await pg.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    }
+  } catch (err) {
+    const blob = new Blob([data], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    scroller.textContent = "";
+    const frame = document.createElement("iframe");
+    frame.title = "Certificate";
+    frame.src = url;
+    frame.style.cssText = "width:100%;height:100%;border:0;background:#fff";
+    scroller.appendChild(frame);
+  }
+}
+async function viewCertificate() {
+  const btn = document.getElementById("view");
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Opening…";
+  try {
+    await showPdf(lastPdf || await signedPdfBytes());
+    btn.disabled = false;
+    btn.textContent = prev;
+  } catch (e) {
+    closeCert();
+    btn.disabled = false;
+    btn.textContent = "Could not open";
+  }
+}
+document.getElementById("view").onclick = viewCertificate;
+document.getElementById("viewDone").onclick = viewCertificate;
+function pdfB64(lines) {
+  const esc = (s) => String(s).replace(/[()\\]/g, (c) => "\\" + c).replace(/[^\x20-\x7e]/g, " ");
+  let y = 740, body = "BT /F1 12 Tf 48 " + y + " Td (" + esc("Capital Improvement Form") + ") Tj ET\n";
+  lines.forEach((line) => { y -= 22; body += "BT /F1 11 Tf 48 " + y + " Td (" + esc(line) + ") Tj ET\n"; });
+  const stream = body;
+  const objs = [
+    "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n",
+    "2 0 obj<< /Type /Pages /Count 1 /Kids [3 0 R] >>endobj\n",
+    "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources<< /Font<< /F1 5 0 R >> >> >>endobj\n",
+    "4 0 obj<< /Length " + stream.length + " >>stream\n" + stream + "endstream\nendobj\n",
+    "5 0 obj<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>endobj\n"
+  ];
+  let pdf = "%PDF-1.3\n", offsets = [0];
+  objs.forEach((o) => { offsets.push(pdf.length); pdf += o; });
+  const xref = pdf.length;
+  pdf += "xref\n0 6\n0000000000 65535 f \n";
+  for (let i = 1; i <= 5; i++) pdf += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+  pdf += "trailer<< /Size 6 /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF";
+  return btoa(pdf);
+}
+send.onclick = async () => {
+  const owner = document.getElementById("owner").value.trim();
+  const facts = [
+    "Project: " + document.getElementById("project").value.trim(),
+    "Project name: " + document.getElementById("projectName").value.trim(),
+    "Description: " + document.getElementById("work").value.trim(),
+    "Address: " + document.getElementById("addr").value.trim(),
+    "Owner name: " + owner,
+    "Role: " + (document.getElementById("role").value === "tenant" ? "Tenant" : "Owner"),
+    "Signed by the customer"
+  ];
+  const wantMail = document.getElementById("emailCopy").checked;
+  const email = document.getElementById("email").value.trim();
+  send.disabled = true;
+  send.textContent = "Submitting…";
+  let filed = false;
+  let signed = null;
+  try { signed = await signedPdfBytes(); } catch (e) {}
+  // Preview hosts are *.pages.dev. Do not file those submits into the real Drive folder.
+  if (/\.pages\.dev$/i.test(location.hostname)) {
+    document.getElementById("form").classList.add("hidden");
+    document.getElementById("done").classList.remove("hidden");
+    document.getElementById("customerSig").src = pad.toDataURL("image/png");
+    document.getElementById("doneFacts").textContent = facts.slice(0, 5).join(" · ");
+    const doneStrong = document.querySelector("#done .ok strong");
+    if (doneStrong) doneStrong.textContent = "Certificate ready.";
+    const doneLead = document.querySelector("#done .ok p");
+    if (doneLead) doneLead.textContent = "Test preview. The signed form is shown here. It is not filed to the Capital improvements Drive folder.";
+    document.getElementById("mailNote").textContent = "Nothing was emailed and nothing was saved to Drive.";
+    send.disabled = false;
+    send.textContent = "Submit";
+    if (signed) {
+      try { await showPdf(signed); } catch (e) {}
+    }
+    return;
+  }
+  try {
+    const res = await fetch("/.netlify/functions/gdrive-save", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "save",
+        folderId: FOLDER,
+        filename: "ST-124 " + (owner || "customer") + ".pdf",
+        mime: "application/pdf",
+        pdfB64: signed ? bytesToB64(signed) : pdfB64(facts)
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    filed = !!(data && data.ok);
+  } catch (e) {}
+  document.getElementById("form").classList.add("hidden");
+  document.getElementById("done").classList.remove("hidden");
+  document.getElementById("customerSig").src = pad.toDataURL("image/png");
+  document.getElementById("doneFacts").textContent = facts.slice(0, 5).join(" · ");
+  document.getElementById("mailNote").textContent = wantMail
+    ? ("A copy was requested for " + email + ". " + (filed ? "The form is in the Capital improvements folder." : "The office still files the signed form."))
+    : (filed ? "Filed in the BLZ Electric Capital improvements folder. No email was sent." : "No email was sent. The office files the signed form.");
+};
+if (location.search.indexOf("done=1") !== -1) {
+  document.getElementById("typed").value = "Yakov Malka";
+  setMode("type");
+}
+if (/\.pages\.dev$/i.test(location.hostname)) {
+  const note = document.createElement("p");
+  note.id = "previewNote";
+  note.textContent = "Test preview. Submit shows the signed certificate and does not file it to Drive.";
+  note.style.cssText = "background:#fef3c7;border:1px solid #f59e0b;color:#78350f;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:700";
+  const main = document.querySelector("main");
+  if (main) main.insertBefore(note, main.firstChild);
+}
+refresh();
+</script>
+</body>
+</html>
