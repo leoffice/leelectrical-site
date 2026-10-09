@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Capital Improvement Form — Yakov Malka</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
 <style>
   :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --brand:#14532d; }
   * { box-sizing:border-box; }
@@ -32,8 +30,8 @@
   .modes { display:flex; gap:8px; margin:0 0 12px; }
   .modes button { flex:1; border-radius:12px; padding:10px; font-weight:750; font-size:14px; border:1px solid var(--line); background:#fff; color:#475569; }
   .modes button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
-  .padwrap { width:100%; height:140px; border:2px dashed #cbd5e1; border-radius:16px; background:#fff; overflow:hidden; }
-  .padwrap canvas { width:100%; height:100%; display:block; touch-action:none; border:0; border-radius:0; }
+  .padwrap { width:100%; height:140px; border:2px dashed #cbd5e1; border-radius:16px; background:#fff; overflow:hidden; touch-action:none; overscroll-behavior:none; }
+  .padwrap canvas { width:100%; height:100%; display:block; touch-action:none; border:0; border-radius:0; user-select:none; -webkit-user-select:none; }
   .hint { color:var(--muted); font-size:13px; line-height:1.4; margin:0 0 12px; }
   button.submit { width:100%; border:0; border-radius:14px; padding:15px 16px; font-size:17px; font-weight:800; color:#fff; background:#94a3b8; }
   button.submit.ready { background:#166534; }
@@ -74,14 +72,7 @@
 
     <div class="card">
       <div class="k">Signature</div>
-      <p class="hint">Draw with your finger, or type the name. You can change any line above before you submit.</p>
-      <div class="modes">
-        <button type="button" id="modeDraw" class="on">Draw</button>
-        <button type="button" id="modeType">Type</button>
-      </div>
-      <label id="nameWrap" class="hidden" style="display:none">
-        <input id="typed" type="text" placeholder="Type the full name" autocomplete="name">
-      </label>
+      <p class="hint">Sign with your finger or mouse in the box. The printed name above is not the signature. Submit stays off until you draw.</p>
       <div class="padwrap"><canvas id="pad" width="640" height="180"></canvas></div>
     </div>
 
@@ -113,25 +104,44 @@ const FOLDER = "1mEA_fVuIiXhxhPaSgNz5XLLE4ACmcN4e";
 const pad = document.getElementById("pad");
 const ctx = pad.getContext("2d");
 const send = document.getElementById("send");
-let mode = "draw", drawing = false, inked = false, lastPdf = null;
+let drawing = false, inked = false, lastPdf = null, activePointer = null;
 function blank() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, pad.width, pad.height);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, pad.width, pad.height);
-  ctx.save();
   ctx.beginPath();
   ctx.rect(2, 2, pad.width - 4, pad.height - 4);
   ctx.clip();
+  const cssW = pad.getBoundingClientRect().width || pad.width;
   ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 2.6;
+  ctx.lineWidth = Math.max(2.4, 2.8 * (pad.width / cssW));
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 }
+function sizePad() {
+  const r = pad.getBoundingClientRect();
+  if (r.width < 20 || r.height < 20) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const w = Math.max(2, Math.round(r.width * dpr));
+  const h = Math.max(2, Math.round(r.height * dpr));
+  if (pad.width === w && pad.height === h) return;
+  const snap = inked ? pad.toDataURL("image/png") : "";
+  pad.width = w;
+  pad.height = h;
+  blank();
+  if (snap) {
+    const img = new Image();
+    img.onload = () => ctx.drawImage(img, 0, 0, w, h);
+    img.src = snap;
+  }
+}
+sizePad();
 blank();
+window.addEventListener("resize", sizePad);
+window.addEventListener("orientationchange", () => setTimeout(sizePad, 60));
 function refresh() {
-  const named = mode === "type" && document.getElementById("typed").value.trim().length > 1;
-  const ready = named || (mode === "draw" && inked);
+  const ready = inked;
   send.disabled = !ready;
   send.className = ready ? "submit ready" : "submit";
   const view = document.getElementById("view");
@@ -144,56 +154,47 @@ function pos(e) {
   return { x: ((s.clientX - r.left) / r.width) * pad.width, y: ((s.clientY - r.top) / r.height) * pad.height };
 }
 function start(e) {
-  if (mode !== "draw") return;
-  e.preventDefault();
+  if (e.pointerId != null && activePointer != null && e.pointerId !== activePointer) return;
+  if (e.cancelable) e.preventDefault();
   drawing = true;
+  activePointer = e.pointerId != null ? e.pointerId : "touch";
+  if (pad.setPointerCapture && e.pointerId != null) {
+    try { pad.setPointerCapture(e.pointerId); } catch (err) {}
+  }
   const p = pos(e);
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
 }
 function move(e) {
-  if (!drawing || mode !== "draw") return;
-  e.preventDefault();
+  if (!drawing) return;
+  if (e.pointerId != null && activePointer != null && e.pointerId !== activePointer) return;
+  if (e.cancelable) e.preventDefault();
   inked = true;
   const p = pos(e);
   ctx.lineTo(p.x, p.y);
   ctx.stroke();
   refresh();
 }
-pad.addEventListener("mousedown", start);
-pad.addEventListener("mousemove", move);
-pad.addEventListener("mouseup", () => drawing = false);
-pad.addEventListener("mouseleave", () => drawing = false);
-pad.addEventListener("touchstart", start, { passive: false });
-pad.addEventListener("touchmove", move, { passive: false });
-pad.addEventListener("touchend", () => drawing = false);
-function paintName() {
-  blank();
-  const name = document.getElementById("typed").value.trim();
-  if (!name) { inked = false; refresh(); return; }
-  inked = true;
-  ctx.fillStyle = "#0f172a";
-  ctx.textBaseline = "middle";
-  let size = 64;
-  ctx.font = size + "px 'Great Vibes', cursive";
-  while (size > 28 && ctx.measureText(name).width > pad.width - 40) {
-    size -= 2;
-    ctx.font = size + "px 'Great Vibes', cursive";
-  }
-  ctx.fillText(name, 20, pad.height / 2);
-  refresh();
+function end(e) {
+  if (e && e.pointerId != null && activePointer != null && e.pointerId !== activePointer) return;
+  drawing = false;
+  activePointer = null;
 }
-function setMode(next) {
-  mode = next;
-  document.getElementById("modeDraw").className = next === "draw" ? "on" : "";
-  document.getElementById("modeType").className = next === "type" ? "on" : "";
-  document.getElementById("nameWrap").style.display = next === "type" ? "block" : "none";
-  if (next === "type") paintName();
-  else { blank(); inked = false; refresh(); }
+if (window.PointerEvent) {
+  pad.addEventListener("pointerdown", start, { passive: false });
+  pad.addEventListener("pointermove", move, { passive: false });
+  pad.addEventListener("pointerup", end);
+  pad.addEventListener("pointercancel", end);
+} else {
+  pad.addEventListener("mousedown", start);
+  pad.addEventListener("mousemove", move);
+  pad.addEventListener("mouseup", end);
+  pad.addEventListener("mouseleave", end);
+  pad.addEventListener("touchstart", start, { passive: false });
+  pad.addEventListener("touchmove", move, { passive: false });
+  pad.addEventListener("touchend", end);
+  pad.addEventListener("touchcancel", end);
 }
-document.getElementById("modeDraw").onclick = () => setMode("draw");
-document.getElementById("modeType").onclick = () => setMode("type");
-document.getElementById("typed").addEventListener("input", paintName);
 function cropSignature(source) {
   const sctx = source.getContext("2d");
   const width = source.width, height = source.height;
@@ -245,7 +246,7 @@ async function signedPdfBytes() {
     const pngBytes = await (await fetch(cropped.toDataURL("image/png"))).arrayBuffer();
     const img = await pdf.embedPng(pngBytes);
     const page = pdf.getPages()[0];
-    // Draw and type both stamp this cropped image.
+    // The drawn canvas is the signature. A typed name is never stamped here.
     // Customer cell, from the template rules on page 1:
     //   row rect x 36.25, y 155.75, w 539.5, h 24
     //   Title divider (the cell's right border) is the vertical rule at x 294.25
@@ -430,10 +431,6 @@ send.onclick = async () => {
     ? ("A copy was requested for " + email + ". " + (filed ? "The form is in the Capital improvements folder." : "The office still files the signed form."))
     : (filed ? "Filed in the BLZ Electric Capital improvements folder. No email was sent." : "No email was sent. The office files the signed form.");
 };
-if (location.search.indexOf("done=1") !== -1) {
-  document.getElementById("typed").value = "Yakov Malka";
-  setMode("type");
-}
 if (/\.pages\.dev$/i.test(location.hostname)) {
   const note = document.createElement("p");
   note.id = "previewNote";
