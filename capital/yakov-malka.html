@@ -27,9 +27,24 @@
   }
   textarea { min-height:52px; resize:vertical; }
   input:focus, textarea:focus, select:focus { outline:none; border-bottom-color:var(--brand); }
+  @font-face {
+    font-family:"Great Vibes";
+    src:url("./fonts/GreatVibes-Regular.ttf") format("truetype");
+    font-weight:400;
+    font-style:normal;
+    font-display:swap;
+  }
   .modes { display:flex; gap:8px; margin:0 0 12px; }
-  .modes button { flex:1; border-radius:12px; padding:10px; font-weight:750; font-size:14px; border:1px solid var(--line); background:#fff; color:#475569; }
+  .modes button { flex:1; min-height:44px; border-radius:12px; padding:10px; font-weight:750; font-size:16px; border:1px solid var(--line); background:#fff; color:#475569; touch-action:manipulation; }
   .modes button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  #typed { width:100%; border:0; border-bottom:1px solid var(--line); background:transparent; font-size:16px; color:var(--ink); padding:8px 0 10px; }
+  .siglive {
+    font-family:"Great Vibes", cursive;
+    font-size:46px; line-height:1.25; min-height:84px; color:#0f172a; background:#fff;
+    border:2px dashed #cbd5e1; border-radius:16px; padding:10px 14px 6px; margin-top:12px;
+    overflow:hidden; white-space:nowrap;
+  }
+  .siglive:empty::before { content:"Your signature"; color:#cbd5e1; }
   .padwrap { width:100%; height:140px; border:2px dashed #cbd5e1; border-radius:16px; background:#fff; overflow:hidden; touch-action:none; overscroll-behavior:none; }
   .padwrap canvas { width:100%; height:100%; display:block; touch-action:none; border:0; border-radius:0; user-select:none; -webkit-user-select:none; }
   .hint { color:var(--muted); font-size:13px; line-height:1.4; margin:0 0 12px; }
@@ -72,8 +87,16 @@
 
     <div class="card">
       <div class="k">Signature</div>
-      <p class="hint">Sign with your finger or mouse in the box. The printed name above is not the signature. Submit stays off until you draw.</p>
-      <div class="padwrap"><canvas id="pad" width="640" height="180"></canvas></div>
+      <div class="modes" role="group" aria-label="How to sign">
+        <button type="button" id="modeDraw" class="on" aria-pressed="true">Draw</button>
+        <button type="button" id="modeType" aria-pressed="false">Type</button>
+      </div>
+      <p class="hint" id="sigHint">Sign with your finger or mouse in the box. Submit stays off until you draw.</p>
+      <div class="padwrap" id="drawPane"><canvas id="pad" width="640" height="180"></canvas></div>
+      <div id="typePane" class="hidden">
+        <input id="typed" type="text" placeholder="Type your name" autocomplete="name" autocapitalize="words" enterkeyhint="done">
+        <div class="siglive" id="sigLive" aria-live="polite"></div>
+      </div>
     </div>
 
     <label class="copy"><input id="emailCopy" type="checkbox"> Email me a copy of this Capital Improvement Form</label>
@@ -104,7 +127,21 @@ const FOLDER = "1mEA_fVuIiXhxhPaSgNz5XLLE4ACmcN4e";
 const pad = document.getElementById("pad");
 const ctx = pad.getContext("2d");
 const send = document.getElementById("send");
-let drawing = false, inked = false, lastPdf = null, activePointer = null;
+let mode = "draw", drawing = false, inked = false, lastPdf = null, activePointer = null;
+let sigFontReady = null;
+function ensureSigFont() {
+  if (!sigFontReady) {
+    sigFontReady = (async () => {
+      const face = new FontFace("Great Vibes", "url(./fonts/GreatVibes-Regular.ttf)");
+      const loaded = await face.load();
+      document.fonts.add(loaded);
+      await document.fonts.load('160px "Great Vibes"');
+      await document.fonts.ready;
+    })();
+  }
+  return sigFontReady;
+}
+ensureSigFont().catch(() => {});
 function blank() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, pad.width, pad.height);
@@ -140,13 +177,38 @@ sizePad();
 blank();
 window.addEventListener("resize", sizePad);
 window.addEventListener("orientationchange", () => setTimeout(sizePad, 60));
+function typedName() {
+  const el = document.getElementById("typed");
+  return el ? el.value.trim() : "";
+}
 function refresh() {
-  const ready = inked;
+  const ready = mode === "type" ? typedName().length > 0 : !!inked;
   send.disabled = !ready;
   send.className = ready ? "submit ready" : "submit";
   const view = document.getElementById("view");
   view.disabled = !ready;
   view.className = ready ? "view ready" : "view";
+}
+function setMode(next) {
+  mode = next === "type" ? "type" : "draw";
+  const drawBtn = document.getElementById("modeDraw");
+  const typeBtn = document.getElementById("modeType");
+  drawBtn.className = mode === "draw" ? "on" : "";
+  typeBtn.className = mode === "type" ? "on" : "";
+  drawBtn.setAttribute("aria-pressed", mode === "draw" ? "true" : "false");
+  typeBtn.setAttribute("aria-pressed", mode === "type" ? "true" : "false");
+  document.getElementById("drawPane").classList.toggle("hidden", mode !== "draw");
+  document.getElementById("typePane").classList.toggle("hidden", mode !== "type");
+  document.getElementById("sigHint").textContent = mode === "draw"
+    ? "Sign with your finger or mouse in the box. Submit stays off until you draw."
+    : "Type your name. It shows below in a signature style and stamps on the form. Submit stays off until the name is filled in.";
+  if (mode === "draw") requestAnimationFrame(sizePad);
+  refresh();
+}
+function paintLive() {
+  const raw = document.getElementById("typed").value;
+  document.getElementById("sigLive").textContent = raw.trim() ? raw : "";
+  refresh();
 }
 function pos(e) {
   const r = pad.getBoundingClientRect();
@@ -195,6 +257,39 @@ if (window.PointerEvent) {
   pad.addEventListener("touchend", end);
   pad.addEventListener("touchcancel", end);
 }
+async function typedSignatureCanvas() {
+  const name = typedName();
+  if (!name) return null;
+  await ensureSigFont();
+  const size = 160;
+  const probe = document.createElement("canvas").getContext("2d");
+  probe.font = size + 'px "Great Vibes"';
+  const metrics = probe.measureText(name);
+  const left = metrics.actualBoundingBoxLeft || 0;
+  const right = metrics.actualBoundingBoxRight || metrics.width;
+  const above = metrics.actualBoundingBoxAscent || size * 0.8;
+  const below = metrics.actualBoundingBoxDescent || size * 0.35;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(8, Math.ceil(left + right + 48));
+  canvas.height = Math.max(8, Math.ceil(above + below + 48));
+  const c = canvas.getContext("2d");
+  c.fillStyle = "#ffffff";
+  c.fillRect(0, 0, canvas.width, canvas.height);
+  c.fillStyle = "#0f172a";
+  c.font = size + 'px "Great Vibes"';
+  c.textBaseline = "alphabetic";
+  c.fillText(name, 24 + left, 24 + above);
+  return cropSignature(canvas);
+}
+async function activeSignatureCanvas() {
+  if (mode === "type") return typedSignatureCanvas();
+  return cropSignature(pad);
+}
+async function signaturePreviewUrl() {
+  const canvas = await activeSignatureCanvas();
+  if (canvas) return canvas.toDataURL("image/png");
+  return mode === "draw" ? pad.toDataURL("image/png") : "";
+}
 function cropSignature(source) {
   const sctx = source.getContext("2d");
   const width = source.width, height = source.height;
@@ -241,12 +336,12 @@ function bytesToB64(bytes) {
 async function signedPdfBytes() {
   const src = await fetch("./ST-124-Yakov-Malka.pdf").then((r) => r.arrayBuffer());
   const pdf = await PDFLib.PDFDocument.load(src);
-  const cropped = cropSignature(pad);
+  const cropped = await activeSignatureCanvas();
   if (cropped) {
     const pngBytes = await (await fetch(cropped.toDataURL("image/png"))).arrayBuffer();
     const img = await pdf.embedPng(pngBytes);
     const page = pdf.getPages()[0];
-    // The drawn canvas is the signature. A typed name is never stamped here.
+    // Draw and Type both stamp a PNG here. Type renders the name in the bundled Great Vibes font.
     // Customer cell, from the template rules on page 1:
     //   row rect x 36.25, y 155.75, w 539.5, h 24
     //   Title divider (the cell's right border) is the vertical rule at x 294.25
@@ -394,7 +489,7 @@ send.onclick = async () => {
   if (/\.pages\.dev$/i.test(location.hostname)) {
     document.getElementById("form").classList.add("hidden");
     document.getElementById("done").classList.remove("hidden");
-    document.getElementById("customerSig").src = pad.toDataURL("image/png");
+    document.getElementById("customerSig").src = await signaturePreviewUrl();
     document.getElementById("doneFacts").textContent = facts.slice(0, 5).join(" · ");
     const doneStrong = document.querySelector("#done .ok strong");
     if (doneStrong) doneStrong.textContent = "Certificate ready.";
@@ -425,7 +520,7 @@ send.onclick = async () => {
   } catch (e) {}
   document.getElementById("form").classList.add("hidden");
   document.getElementById("done").classList.remove("hidden");
-  document.getElementById("customerSig").src = pad.toDataURL("image/png");
+  document.getElementById("customerSig").src = await signaturePreviewUrl();
   document.getElementById("doneFacts").textContent = facts.slice(0, 5).join(" · ");
   document.getElementById("mailNote").textContent = wantMail
     ? ("A copy was requested for " + email + ". " + (filed ? "The form is in the Capital improvements folder." : "The office still files the signed form."))
@@ -439,6 +534,9 @@ if (/\.pages\.dev$/i.test(location.hostname)) {
   const main = document.querySelector("main");
   if (main) main.insertBefore(note, main.firstChild);
 }
+document.getElementById("modeDraw").onclick = () => setMode("draw");
+document.getElementById("modeType").onclick = () => setMode("type");
+document.getElementById("typed").addEventListener("input", paintLive);
 refresh();
 </script>
 </body>
