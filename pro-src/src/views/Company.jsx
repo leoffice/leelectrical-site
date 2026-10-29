@@ -830,6 +830,15 @@ export default function Company() {
             {fmtMoneyK(data.ar.openTotal)} open A/R
           </div>
         </div>
+        <a
+          href="https://cursor.com/canvas/store-bde56e17-5735-437d-bcc9-d7d6f8dba9ca/f68380b2-d852-4684-8284-51bfe01bb26b"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block mt-2 text-xs font-extrabold text-blue-700 underline"
+          data-testid="private-page-link"
+        >
+          Private page
+        </a>
         <div className="bg-white border border-slate-200 rounded-[11px] px-3 py-2.5 mt-2 text-xs text-slate-500 shadow-sm space-y-2">
           <div className="flex gap-2 items-start">
             <span className="text-base">🔄</span>
