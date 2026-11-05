@@ -8,6 +8,7 @@
 //   chat      floating-bubble conversations (op:msg)
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
+import { applyPaymentLedger } from "../lib/paymentTransfer.js";
 import { functionsBase } from "../lib/functionsBase.js";
 import { authHeader } from "../lib/session.js";
 import { emailKeyHeader } from "../lib/emailSendAuth.js";
@@ -238,20 +239,25 @@ export function createNetlifyAdapter() {
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
+      const [data, state, ledger] = await Promise.all([
+        httpConditional("jobsdata"),
+        httpConditional("state"),
+        httpConditional("jobsdata?view=ledger").catch(() => null),
+      ]);
       if (
         lastJobsMeta &&
         lastJobsMeta.data === data &&
-        lastJobsMeta.state === state
+        lastJobsMeta.state === state &&
+        lastJobsMeta.ledger === ledger
       ) {
         return lastJobsMeta.result;
       }
       const result = {
-        jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
+        jobs: mergeJobs(applyPaymentLedger(data.jobs || [], ledger), (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
         stateTs: (state && state.ts) || 0,
       };
-      lastJobsMeta = { data, state, result };
+      lastJobsMeta = { data, state, ledger, result };
       return result;
     },
 

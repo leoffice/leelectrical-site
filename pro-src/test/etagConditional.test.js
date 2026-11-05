@@ -30,21 +30,24 @@ test("server: conditionalJson 304s on matching ETag, 200s otherwise", async () =
 test("client: httpConditional reuses cached data on a 304 (no re-parse)", async () => {
   const bodies = {
     jobsdata: { jobs: [{ id: "J-1" }, { id: "J-2" }], syncedAt: 9, ts: 777 },
+    "jobsdata?view=ledger": { view: "ledger", jobs: [], ts: 777 },
     state: { ov: {}, ts: 55 },
   };
-  const etags = { jobsdata: '"j777"', state: '"s55"' };
-  const seen = { jobsdata: 0, state: 0 };
+  const etags = { jobsdata: '"j777"', "jobsdata?view=ledger": '"jg777"', state: '"s55"' };
+  const seen = { jobsdata: 0, "jobsdata?view=ledger": 0, state: 0 };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, o = {}) => {
-      const path = String(url).split("/functions/")[1].split("?")[0];
+      const raw = String(url).split("/functions/")[1];
+      const path = raw.split("?")[0];
+      const key = raw.includes("view=ledger") ? "jobsdata?view=ledger" : path;
       const inm = o.headers && o.headers["if-none-match"];
-      seen[path] = (seen[path] || 0) + 1;
-      if (seen[path] === 1) {
+      seen[key] = (seen[key] || 0) + 1;
+      if (seen[key] === 1) {
         expect(inm).toBeUndefined(); // first poll for this path: no cached tag
-        return { ok: true, status: 200, headers: { get: (h) => (h === "etag" ? etags[path] : null) }, json: async () => bodies[path] };
+        return { ok: true, status: 200, headers: { get: (h) => (h === "etag" ? etags[key] : null) }, json: async () => bodies[key] };
       }
-      expect(inm).toBe(etags[path]); // client sent the stored tag
+      expect(inm).toBe(etags[key]); // client sent the stored tag
       return { ok: true, status: 304, headers: { get: () => null }, json: async () => { throw new Error("must not parse a 304 body"); } };
     })
   );

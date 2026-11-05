@@ -3,7 +3,7 @@
  * List GET must not ship full invoice/estimate line arrays.
  */
 import { describe, it, expect } from "vitest";
-import { slimJob, slimJobsDoc } from "../../netlify/functions/jobsdata.mjs";
+import { slimJob, slimJobsDoc, ledgerJobsDoc } from "../../netlify/functions/jobsdata.mjs";
 
 describe("jobsdata slim projection", () => {
   it("strips invoiceLines, payments, empty stages, and addresses from list jobs", () => {
@@ -175,6 +175,48 @@ describe("jobsdata slim projection", () => {
     // Absolute ceiling: list payload for 4k must stay under 3.2 MB in this harness
     // (live was ~4.3 MB before v316 status/payments trim)
     expect(slimBytes).toBeLessThan(3_200_000);
+  });
+
+  it("ledger view keeps payment ids and drops notes", () => {
+    const doc = {
+      ts: 5,
+      jobs: [
+        {
+          id: "local-260728",
+          invoiceNo: "260728",
+          amount: "$13,300",
+          customer: "Hidden",
+          email: "hidden@example.com",
+          payments: [
+            {
+              id: "pay-20261105-zelle-1",
+              amount: 5950,
+              date: "2026-11-05",
+              method: "Zelle",
+              note: "do not ship this note",
+              zelleProofName: "proof.jpg",
+              qboPaymentId: "",
+            },
+          ],
+        },
+        { id: "paid-flag-only", invoiceNo: "251000", paid: true, amount: "$100", openBalance: "$0" },
+      ],
+    };
+    const ledger = ledgerJobsDoc(doc);
+    expect(ledger.view).toBe("ledger");
+    expect(ledger.jobs).toHaveLength(1);
+    expect(ledger.jobs[0].invoiceNo).toBe("260728");
+    expect(ledger.jobs[0].payments[0]).toEqual({
+      id: "pay-20261105-zelle-1",
+      amount: 5950,
+      date: "2026-11-05",
+      method: "Zelle",
+    });
+    expect(JSON.stringify(ledger)).not.toContain("do not ship");
+    expect(JSON.stringify(ledger)).not.toContain("hidden@example.com");
+    const slim = slimJob(doc.jobs[0]);
+    expect(slim.payments).toBeUndefined();
+    expect(slim.invoiceLines).toBeUndefined();
   });
 });
 

@@ -15,6 +15,61 @@ import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 //         { op:"get", id } → { ok, job } full single job for detail hydrate
 const KEY = "jobsdata-v1";
 
+/** Ledger fields safe to repeat on the payment read. Notes and proof names stay on op:get. */
+const LEDGER_PAYMENT_KEYS = [
+  "id",
+  "amount",
+  "date",
+  "method",
+  "ref",
+  "qboPaymentId",
+  "source",
+  "depositTo",
+  "recordedAt",
+  "recorded",
+  "syncToken",
+  "_deleted",
+  "deletedAt",
+  "zelleVerified",
+];
+
+export function compactPayment(p) {
+  if (!p || typeof p !== "object") return null;
+  const out = {};
+  for (const k of LEDGER_PAYMENT_KEYS) {
+    if (p[k] !== undefined && p[k] !== "") out[k] = p[k];
+  }
+  if (out.id == null && out.amount == null && !out.method && !out.ref) return null;
+  return out;
+}
+
+function ledgerPayments(job) {
+  const raw = Array.isArray(job?.payments) ? job.payments : [];
+  let compact = raw.map(compactPayment).filter(Boolean);
+  if (!compact.length && job?.payment && typeof job.payment === "object") {
+    const one = compactPayment(job.payment);
+    if (one) compact = [one];
+  }
+  return compact;
+}
+
+/**
+ * Payment rows only, for history and a later Books transfer.
+ * The list view stays small. This view does not invent rows from paid flags.
+ */
+export function ledgerJobsDoc(doc) {
+  const jobs = [];
+  for (const job of doc?.jobs || []) {
+    if (!job || !job.id) continue;
+    const payments = ledgerPayments(job);
+    if (!payments.length) continue;
+    const row = { id: job.id, payments };
+    if (job.invoiceNo) row.invoiceNo = job.invoiceNo;
+    jobs.push(row);
+  }
+  return { view: "ledger", jobs, ts: doc?.ts || 0, syncedAt: doc?.syncedAt || 0 };
+}
+
 /** Fields kept on the list projection — no multi-MB line arrays. */
 const SLIM_KEYS = [
   "id",
@@ -55,7 +110,8 @@ const SLIM_KEYS = [
   "amountWhenBaselined",
   "_fromEstimateGenerator",
   "_estimator",
-  // payment ledger + paperwork hydrate on detail (openBalance/paid for list chips)
+  // Payment rows stay off this list (see ledgerJobsDoc). Paperwork hydrates
+  // on detail. openBalance + paid still drive the list chips.
 ];
 
 /**
@@ -237,8 +293,9 @@ export default async (req) => {
   const doc = await load(store);
   const url = new URL(req.url || "https://local/jobsdata");
   const view = (url.searchParams.get("view") || "list").toLowerCase();
-  const payload = view === "full" ? { ...doc, view: "full" } : slimJobsDoc(doc);
-  // Separate ETag prefix for list vs full so clients don't mix caches
-  const prefix = view === "full" ? "jf" : "jl";
+  const payload =
+    view === "full" ? { ...doc, view: "full" } : view === "ledger" ? ledgerJobsDoc(doc) : slimJobsDoc(doc);
+  // Separate ETag prefix per view so clients don't mix caches
+  const prefix = view === "full" ? "jf" : view === "ledger" ? "jg" : "jl";
   return conditionalJson(req, payload, { prefix, ts: doc.ts || doc.syncedAt || 0 });
 };
